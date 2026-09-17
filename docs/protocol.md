@@ -243,8 +243,7 @@ POST /translations/create?seriesId=<ID>   Content-Type: application/x-www-form-u
 ### Редирект содержит идентификатор созданного перевода
 
 ```
-Location: /translations/update/5995522
-                               ^^^^^^^ id перевода
+Location: /translations/update/<translationId>
 ```
 
 Это единственный способ узнать id сразу: в API запись появляется с задержкой.
@@ -255,7 +254,7 @@ Location: /translations/update/5995522
 
 ```
 GET /api/translations?seriesId=36866&type=voiceRu
-  url = https://smotret-anime.org/catalog/<слаг-тайтла>-36866/1-seriya-371562/ozvuchka-5995522
+  url = https://smotret-anime.org/catalog/<слаг>-<seriesId>/<слаг>-<episodeId>/ozvuchka-<translationId>
 ```
 
 Структура адреса, если он всё же понадобится вручную:
@@ -315,18 +314,18 @@ dynpage=1                             ← как и на логине
 
 ### Сайт переписывает строку авторов
 
-Отправлено: `JamClub (Jam, Oriko)`
-Сохранено и отдано API: `JamClub (Jam & Oriko)`
+Отправлено: `Команда (Участник1, Участник2)`
+Сохранено и отдано API: `Команда (Участник1 & Участник2)`
 
-Запятая между участниками заменена на амперсанд. Поэтому сравнивать свою строку
-авторов с `authorsSummary` дословно бесполезно — сверка обязана нормализовать
-разделители (`,`, `&`, ` и `), регистр и пробелы.
+Запятая между участниками заменена на амперсанд. Проверено на реальной отправке.
+Поэтому сравнивать свою строку авторов с `authorsSummary` дословно бесполезно —
+сверка обязана нормализовать разделители (`,`, `&`, ` и `), регистр и пробелы.
 
-Пример записи, созданной этой отправкой:
+Форма записи, созданной такой отправкой:
 
 ```
-id=5995522  episodeId=371562  typeKind=voice  typeLang=ru  isActive=1
-qualityType=tv  1920x1080  authorsSummary="JamClub (Jam & Oriko)"
+id=<translationId>  episodeId=<episodeId>  typeKind=voice  typeLang=ru  isActive=1
+qualityType=tv  1920x1080  authorsSummary="<строка авторов, переписанная сайтом>"
 ```
 
 ## Публичный read-only API
