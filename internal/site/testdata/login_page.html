@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Вход</title></head>
+<body>
+<div class="form">
+    <form id="login-form" action="/users/login" method="post">
+        <div style="display:none"><input type="hidden" value="TESTCSRF0000000000000000000000000000000000000000000000000000000000000000000000000000000==" name="csrf"></div>
+        <div class="input-field">
+            <input name="LoginForm[username]" id="LoginForm_username" type="text" value="">
+            <label for="LoginForm_username">E-mail</label>
+        </div>
+        <div class="input-field">
+            <input name="LoginForm[password]" id="LoginForm_password" type="password" value="">
+            <label for="LoginForm_password">Пароль</label>
+        </div>
+        <div class="input-field">
+            <button class="btn" type="submit" name="yt0">Войти</button>
+        </div>
+    </form>
+</div>
+</body></html>

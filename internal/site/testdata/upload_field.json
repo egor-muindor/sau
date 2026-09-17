@@ -1,0 +1,16 @@
+{
+  "files": [
+    {
+      "name": "test-upload.mp4",
+      "originalName": "test-upload.mp4",
+      "uuid": "580fcb20-5c8c-419c-88d1-5b889298c20f",
+      "size": 6531378,
+      "status": "upload successful",
+      "file": { "qqDropTarget": { "__ym_indexer": 10 }, "qqThumbnailId": 0 },
+      "batchId": "9ea18edd-baaf-485c-8a51-b0df0b0a055c",
+      "id": 0
+    }
+  ],
+  "endpoint": "https://t-time28.melon-soda.org/upload.php",
+  "serverId": 28
+}

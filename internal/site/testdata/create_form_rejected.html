@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"></head><body>
+    <form id="translation-admin-form" action="/translations/create?seriesId=36866" method="post" class="ng-pristine ng-valid ng-valid-required ng-valid-minlength ng-valid-maxlength">
+<div style="display:none"><input type="hidden" value="TESTCSRF0000000000000000000000000000000000000000000000000000000000000000000000000000000==" name="csrf"></div>
+    
+    <div class="errorSummary"><p>Необходимо исправить следующие ошибки:</p><ul><li>Номер серии обязателен.</li></ul></div>
+    <div class="row">
+                <div ng-controller="SeriesSearchInput as ctrl" layout="column" class="col s6 ng-scope layout-column">
+            <md-autocomplete md-selected-item="ctrl.selectedItem" md-search-text="ctrl.searchText" md-items="item in ctrl.querySearch(ctrl.searchText)" md-item-text="item.titles.romaji" md-min-length="0" ng-class="{'m-series-search-input-not-selected-p': !ctrl.selectedItem.id}" md-floating-label="Выберите аниме (поиск по названию или ссылке)" md-menu-class="m-series-search-input" ng-init="ctrl.searchText = &quot;Mushoku Tensei III: Isekai Ittara Honki Dasu&quot;; ctrl.selectedItem.titles.romaji = ctrl.searchText; ctrl.selectedItem.id = '36866';" tabindex="-1" class="ng-isolate-scope">        <md-autocomplete-wrap layout="row" ng-class="{ 'md-whiteframe-z1': !floatingLabel, 'md-menu-showing': !$mdAutocompleteCtrl.hidden }" role="listbox" class="layout-row">                      <!-- ngIf: floatingLabel --><md-input-container flex="" ng-if="floatingLabel" class="ng-scope md-input-has-value flex">              <label class="ng-binding" for="{{ inputId || 'fl-input-' + $mdAutocompleteCtrl.id }}">Выберите аниме (поиск по названию или ссылке)</label>              <input type="search" id="fl-input-0" name="" ng-trim="" is-blurable="" can-scroll-around="" autocomplete="off" ng-required="$mdAutocompleteCtrl.isRequired" ng-readonly="$mdAutocompleteCtrl.isReadonly" ng-disabled="$mdAutocompleteCtrl.isDisabled" ng-model="$mdAutocompleteCtrl.scope.searchText" ng-keydown="$mdAutocompleteCtrl.keydown($event)" ng-blur="$mdAutocompleteCtrl.blur()" ng-focus="$mdAutocompleteCtrl.focus()" aria-owns="ul-0" aria-label="Выберите аниме (поиск по названию или ссылке)" aria-autocomplete="list" aria-haspopup="true" aria-activedescendant="" aria-expanded="false" class="ng-pristine ng-untouched ng-valid md-input ng-not-empty ng-valid-required ng-valid-minlength ng-valid-maxlength" aria-invalid="false"><div class="md-errors-spacer"></div>              <!-- mdAutocompleteParentScope:  --><div md-autocomplete-parent-scope="" md-autocomplete-replace="" class="ng-scope">
+                
+            </div>            </md-input-container><!-- end ngIf: floatingLabel -->          <!-- ngIf: $mdAutocompleteCtrl.loadingIsVisible() -->                  </md-autocomplete-wrap>        <aria-status class="_md-visually-hidden" role="status" aria-live="assertive">          <!-- ngRepeat: message in $mdAutocompleteCtrl.messages track by $index -->        </aria-status></md-autocomplete>
+            <!-- ngIf: ctrl.selectedItem.id --><input type="hidden" name="TranslationAdminForm[seriesIdNew]" ng-if="ctrl.selectedItem.id" value="36866" class="ng-scope"><!-- end ngIf: ctrl.selectedItem.id -->
+            
+        </div>    </div>
+
+    <div class="row" style="margin-bottom: 0;">
+        <div class="input-field col s6 l3"><input name="TranslationAdminForm[episodeNumberNew]" id="TranslationAdminForm_episodeNumberNew" type="text" value=""><label for="TranslationAdminForm_episodeNumberNew">Номер серии</label></div><div class="input-field col s6 l3"><div class="select-wrapper"><span class="caret">▼</span><input type="text" class="select-dropdown" readonly="true" data-activates="select-options-8aa84644-6e53-c2b1-b02e-9affb1d88849" value="TV"><ul id="select-options-8aa84644-6e53-c2b1-b02e-9affb1d88849" class="dropdown-content select-dropdown "><li class=""><span>(выберите)</span></li><li class=""><span>TV</span></li><li class=""><span>OVA</span></li><li class=""><span>ONA</span></li><li class=""><span>Фильм</span></li><li class=""><span>SP</span></li><li class=""><span>TV SP</span></li><li class=""><span>Трейлер</span></li></ul><select name="TranslationAdminForm[episodeTypeNew]" id="TranslationAdminForm_episodeTypeNew" class="initialized">
+<option value="">(выберите)</option>
+<option value="tv" selected="selected">TV</option>
+<option value="ova">OVA</option>
+<option value="ona">ONA</option>
+<option value="movie">Фильм</option>
+<option value="special">SP</option>
+<option value="tv_special">TV SP</option>
+<option value="preview">Трейлер</option>
+</select></div><label for="TranslationAdminForm_episodeTypeNew">Тип серии</label></div>    </div>
+    <div style="margin-bottom: 20px; color: #7a7a7a;">Если номера серии нету (например это фильм), то укажите "1".</div>
+
+    <div class="row" style="margin-bottom: 0;">
+                <div class="input-field col s6 l3"><div class="select-wrapper"><span class="caret">▼</span><input type="text" class="select-dropdown" readonly="true" data-activates="select-options-b787963b-684c-4785-c7dd-d7a68b104b52" value="(выберите)"><ul id="select-options-b787963b-684c-4785-c7dd-d7a68b104b52" class="dropdown-content select-dropdown "><li class=""><span>(выберите)</span></li><li class=""><span>RAW</span></li><li class=""><span>Японские субтитры</span></li><li class=""><span>Английские субтитры</span></li><li class=""><span>Английская озвучка</span></li><li class=""><span>Украинские субтитры</span></li><li class=""><span>Украинская озвучка</span></li><li class=""><span>Русские субтитры</span></li><li class=""><span>Озвучка</span></li></ul><select name="TranslationAdminForm[type]" id="TranslationAdminForm_type" class="initialized">
+<option value="" selected="selected">(выберите)</option>
+<option value="raw">RAW</option>
+<option value="subJa">Японские субтитры</option>
+<option value="subEn">Английские субтитры</option>
+<option value="voiceEn">Английская озвучка</option>
+<option value="subUk">Украинские субтитры</option>
+<option value="voiceUk">Украинская озвучка</option>
+<option value="subRu">Русские субтитры</option>
+<option value="voiceRu">Озвучка</option>
+</select></div><label for="TranslationAdminForm_type">Тип перевода</label></div>                
+                <div class="input-field col s6 l3"><input name="TranslationAdminForm[authorsNew]" id="TranslationAdminForm_authorsNew" type="text" value=""><label for="TranslationAdminForm_authorsNew">Авторы</label></div>    </div>
+    <div style="margin-bottom: 20px; color: #7a7a7a;">
+        Формат поля "Авторы": Команда (Участник &amp; Участник), например: AniPlus (GreenWay &amp; YellowCup)<br>
+        Если нет команды: Участник &amp; Участник, например: RedQueen &amp; BlackMoon
+    </div>
+    <div class="row">
+        <div class="col s12 l6"><input id="ytTranslationAdminForm_addedByAuthor" type="hidden" value="0" name="TranslationAdminForm[addedByAuthor]"><input class="filled-in" name="TranslationAdminForm[addedByAuthor]" id="TranslationAdminForm_addedByAuthor" value="1" type="checkbox"><label for="TranslationAdminForm_addedByAuthor">Я участник команды авторов этого перевода (необязательно)</label></div>    </div>
+                
+    
+                    <div class="right hide-on-small-only" ng-non-bindable="">
+            <label>Канал для загрузки:</label>
+            <div class="select-wrapper"><span class="caret">▼</span><input type="text" class="select-dropdown" readonly="true" data-activates="select-options-f4bacc55-4aea-2724-4fd5-a5cf4e6f5a4a" value="CDN"><ul id="select-options-f4bacc55-4aea-2724-4fd5-a5cf4e6f5a4a" class="dropdown-content select-dropdown "><li class=""><span>Все (CDN + РФ)</span></li><li class=""><span>CDN</span></li><li class=""><span>РФ</span></li></ul><select onchange="setCookieItem('upload-channel', this.value, Infinity, '/'); location.reload();" name="upload-channel" id="upload-channel" class="initialized">
+<option value="0">Все (CDN + РФ)</option>
+<option value="2" selected="selected">CDN</option>
+<option value="3">РФ</option>
+</select></div>        </div>
+        <h3>Загрузите видео</h3>
+        <div class="hide-on-med-and-up" style="margin-bottom: 10px;" ng-non-bindable="">
+            <label>Канал для загрузки:</label>
+            <div class="select-wrapper"><span class="caret">▼</span><input type="text" class="select-dropdown" readonly="true" data-activates="select-options-c8efdd03-9b22-1352-2cd4-908307a08e8c" value="CDN"><ul id="select-options-c8efdd03-9b22-1352-2cd4-908307a08e8c" class="dropdown-content select-dropdown "><li class=""><span>Все (CDN + РФ)</span></li><li class=""><span>CDN</span></li><li class=""><span>РФ</span></li></ul><select onchange="setCookieItem('upload-channel', this.value, Infinity, '/'); location.reload();" name="upload-channel-mobile" id="upload-channel-mobile" class="initialized">
+<option value="0">Все (CDN + РФ)</option>
+<option value="2" selected="selected">CDN</option>
+<option value="3">РФ</option>
+</select></div>        </div>
+        <div class="margin-bottom">Советуем использовать кодек H264 и формат mp4. Большинство других форматов также поддерживаются.</div>
+        <div style="clear: both;">
+            <input id="TranslationAdminForm_videoFileNew" type="hidden" value="" name="TranslationAdminForm[videoFileNew]"><div id="TranslationAdminForm_videoFileNew-wrapper"><div><div class="qq-uploader-selector qq-uploader" qq-drop-area-text="Перетащите файл">
+		<!--<div class="qq-total-progress-bar-container-selector qq-total-progress-bar-container progress">
+			<div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-total-progress-bar-selector qq-progress-bar qq-total-progress-bar determinate"></div>
+		</div>-->
+		<div class="qq-upload-drop-area-selector qq-upload-drop-area" qq-hide-dropzone="" style="display: none;">
+			
+		</div>
+		<div class="buttons">
+			<div class="qq-upload-button-selector qq-upload-button btn green darken-4" style="position: relative; overflow: hidden; direction: ltr;">
+				<div>Выбрать файл</div>
+			<input qq-button-id="7d856f12-06ed-4361-9f9f-74a23e8cfe77" title="file input" multiple="" type="file" name="qqfile" style="position: absolute; right: 0px; top: 0px; font-family: Arial; font-size: 118px; margin: 0px; padding: 0px; cursor: pointer; opacity: 0; height: 100%;"></div>
+		</div>
+            <span class="qq-drop-processing-selector qq-drop-processing qq-hide">
+                <span>Загрузка...</span>
+                <span class="qq-drop-processing-spinner-selector qq-drop-processing-spinner"></span>
+            </span>
+		<ul class="qq-upload-list-selector qq-upload-list" aria-live="polite" aria-relevant="additions removals"></ul>
+
+		<dialog class="qq-alert-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector btn">Закрыть</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-confirm-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Нет</button>
+				<button type="button" class="qq-ok-button-selector">Да</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-prompt-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<input type="text">
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Отмена</button>
+				<button type="button" class="qq-ok-button-selector">ОК</button>
+			</div>
+		</dialog>
+	</div></div></div>
+
+<script type="text/template" id="TranslationAdminForm_videoFileNew-template">
+	<div class="qq-uploader-selector qq-uploader" qq-drop-area-text="Перетащите файл">
+		<!--<div class="qq-total-progress-bar-container-selector qq-total-progress-bar-container progress">
+			<div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-total-progress-bar-selector qq-progress-bar qq-total-progress-bar determinate"></div>
+		</div>-->
+		<div class="qq-upload-drop-area-selector qq-upload-drop-area" qq-hide-dropzone>
+			<span class="qq-upload-drop-area-text-selector"></span>
+		</div>
+		<div class="buttons">
+			<div class="qq-upload-button-selector qq-upload-button btn green darken-4">
+				<div>Выбрать файл</div>
+			</div>
+		</div>
+            <span class="qq-drop-processing-selector qq-drop-processing">
+                <span>Загрузка...</span>
+                <span class="qq-drop-processing-spinner-selector qq-drop-processing-spinner"></span>
+            </span>
+		<ul class="qq-upload-list-selector qq-upload-list" aria-live="polite" aria-relevant="additions removals">
+			<li>
+				<div class="qq-progress-bar-container-selector progress">
+					<div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-progress-bar-selector qq-progress-bar determinate"></div>
+				</div>
+				<span class="qq-upload-spinner-selector qq-upload-spinner"></span>
+				<img class="qq-thumbnail-selector" qq-max-size="100" qq-server-scale>
+				<span class="qq-upload-file-selector qq-upload-file"></span>
+				<span class="qq-edit-filename-icon-selector qq-edit-filename-icon" aria-label="Изменить название"></span>
+				<input class="qq-edit-filename-selector qq-edit-filename" tabindex="0" type="text">
+				<span class="qq-upload-size-selector qq-upload-size"></span>
+				<button type="button" class="qq-btn qq-upload-cancel-selector qq-upload-cancel btn red">Отмена</button>
+				<button type="button" class="qq-btn qq-upload-retry-selector qq-upload-retry btn green darken-4">Попробовать ещё раз</button>
+				<button type="button" class="qq-btn qq-upload-delete-selector qq-upload-delete btn red">Удалить</button>
+				<span role="status" class="qq-upload-status-text-selector qq-upload-status-text"></span>
+			</li>
+		</ul>
+
+		<dialog class="qq-alert-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector btn">Закрыть</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-confirm-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Нет</button>
+				<button type="button" class="qq-ok-button-selector">Да</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-prompt-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<input type="text">
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Отмена</button>
+				<button type="button" class="qq-ok-button-selector">ОК</button>
+			</div>
+		</dialog>
+	</div>
+</script>        </div>
+
+        <div id="update-translation__sub-wrapper" style="">
+            <h3 id="update-translation__sub-title">Загрузите надписи (если есть)</h3>
+            <div class="margin-bottom">Советуем использовать формат ass, также поддерживается srt и vtt.</div>
+            <div class="margin-bottom">Загружайте отдельно RAW-видео и субтитры, а не хардсаб (по возможности).</div>
+            <input id="TranslationAdminForm_subFileNew" type="hidden" value="" name="TranslationAdminForm[subFileNew]"><div id="TranslationAdminForm_subFileNew-wrapper"><div><div class="qq-uploader-selector qq-uploader" qq-drop-area-text="Перетащите файл">
+		<!--<div class="qq-total-progress-bar-container-selector qq-total-progress-bar-container progress">
+			<div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-total-progress-bar-selector qq-progress-bar qq-total-progress-bar determinate"></div>
+		</div>-->
+		<div class="qq-upload-drop-area-selector qq-upload-drop-area" qq-hide-dropzone="" style="display: none;">
+			
+		</div>
+		<div class="buttons">
+			<div class="qq-upload-button-selector qq-upload-button btn green darken-4" style="position: relative; overflow: hidden; direction: ltr;">
+				<div>Выбрать файл</div>
+			<input qq-button-id="d4c61f76-0ddf-430a-b559-3cc5fcf10d78" title="file input" multiple="" type="file" name="qqfile" style="position: absolute; right: 0px; top: 0px; font-family: Arial; font-size: 118px; margin: 0px; padding: 0px; cursor: pointer; opacity: 0; height: 100%;"></div>
+		</div>
+            <span class="qq-drop-processing-selector qq-drop-processing qq-hide">
+                <span>Загрузка...</span>
+                <span class="qq-drop-processing-spinner-selector qq-drop-processing-spinner"></span>
+            </span>
+		<ul class="qq-upload-list-selector qq-upload-list" aria-live="polite" aria-relevant="additions removals"></ul>
+
+		<dialog class="qq-alert-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector btn">Закрыть</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-confirm-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Нет</button>
+				<button type="button" class="qq-ok-button-selector">Да</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-prompt-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<input type="text">
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Отмена</button>
+				<button type="button" class="qq-ok-button-selector">ОК</button>
+			</div>
+		</dialog>
+	</div></div></div>
+
+<script type="text/template" id="TranslationAdminForm_subFileNew-template">
+	<div class="qq-uploader-selector qq-uploader" qq-drop-area-text="Перетащите файл">
+		<!--<div class="qq-total-progress-bar-container-selector qq-total-progress-bar-container progress">
+			<div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-total-progress-bar-selector qq-progress-bar qq-total-progress-bar determinate"></div>
+		</div>-->
+		<div class="qq-upload-drop-area-selector qq-upload-drop-area" qq-hide-dropzone>
+			<span class="qq-upload-drop-area-text-selector"></span>
+		</div>
+		<div class="buttons">
+			<div class="qq-upload-button-selector qq-upload-button btn green darken-4">
+				<div>Выбрать файл</div>
+			</div>
+		</div>
+            <span class="qq-drop-processing-selector qq-drop-processing">
+                <span>Загрузка...</span>
+                <span class="qq-drop-processing-spinner-selector qq-drop-processing-spinner"></span>
+            </span>
+		<ul class="qq-upload-list-selector qq-upload-list" aria-live="polite" aria-relevant="additions removals">
+			<li>
+				<div class="qq-progress-bar-container-selector progress">
+					<div role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" class="qq-progress-bar-selector qq-progress-bar determinate"></div>
+				</div>
+				<span class="qq-upload-spinner-selector qq-upload-spinner"></span>
+				<img class="qq-thumbnail-selector" qq-max-size="100" qq-server-scale>
+				<span class="qq-upload-file-selector qq-upload-file"></span>
+				<span class="qq-edit-filename-icon-selector qq-edit-filename-icon" aria-label="Изменить название"></span>
+				<input class="qq-edit-filename-selector qq-edit-filename" tabindex="0" type="text">
+				<span class="qq-upload-size-selector qq-upload-size"></span>
+				<button type="button" class="qq-btn qq-upload-cancel-selector qq-upload-cancel btn red">Отмена</button>
+				<button type="button" class="qq-btn qq-upload-retry-selector qq-upload-retry btn green darken-4">Попробовать ещё раз</button>
+				<button type="button" class="qq-btn qq-upload-delete-selector qq-upload-delete btn red">Удалить</button>
+				<span role="status" class="qq-upload-status-text-selector qq-upload-status-text"></span>
+			</li>
+		</ul>
+
+		<dialog class="qq-alert-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector btn">Закрыть</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-confirm-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Нет</button>
+				<button type="button" class="qq-ok-button-selector">Да</button>
+			</div>
+		</dialog>
+
+		<dialog class="qq-prompt-dialog-selector">
+			<div class="qq-dialog-message-selector"></div>
+			<input type="text">
+			<div class="qq-dialog-buttons">
+				<button type="button" class="qq-cancel-button-selector">Отмена</button>
+				<button type="button" class="qq-ok-button-selector">ОК</button>
+			</div>
+		</dialog>
+	</div>
+</script>        </div>
+
+    
+    <div class="input-field">
+        <button class="green darken-4 white-text waves-effect waves-light btn btn-large" type="submit" name="yt0">Добавить перевод</button>    </div>
+
+    </form>
+<script type="text/javascript">
+require(['fine\x2Duploader'], function () {initFileUploader({"validation":{"allowedExtensions":["mp4","mkv","webm","mpg","mod","mmv","tod","wmv","asf","avi","divx","mov","m4v","3gp","3g2","m2t","mts","wmv","ogm","bik","flv","ts","ogg","qt","rm","ram","rmvb","smk","vob"],"itemLimit":1},"wrapper":"TranslationAdminForm_videoFileNew-wrapper","template":"TranslationAdminForm_videoFileNew-template","formField":"TranslationAdminForm_videoFileNew","serverId":28,"serverUrl":"https:\/\/t-time28.melon-soda.org","serverUrls":["https:\/\/t-time28.melon-soda.org","https:\/\/time28.melon-soda.org","https:\/\/time28.anime-on.ru","https:\/\/t-time28.anime-on.ru"]})});
+require(['fine\x2Duploader'], function () {initFileUploader({"validation":{"allowedExtensions":["ass","ssa","srt","vtt","webvtt"],"itemLimit":1},"wrapper":"TranslationAdminForm_subFileNew-wrapper","template":"TranslationAdminForm_subFileNew-template","formField":"TranslationAdminForm_subFileNew","serverId":28,"serverUrl":"https:\/\/t-time28.melon-soda.org","serverUrls":["https:\/\/t-time28.melon-soda.org","https:\/\/time28.melon-soda.org","https:\/\/time28.anime-on.ru","https:\/\/t-time28.anime-on.ru"]})});
+</script>
+</body></html>
