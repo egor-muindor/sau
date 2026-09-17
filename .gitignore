@@ -1,0 +1,23 @@
+# Research and reconnaissance artifacts — conclusions live in docs/, raw data does not
+recon/
+recon.mjs
+.browser-profile/
+.work/
+
+# Playwright scaffolding used only for protocol reconnaissance
+node_modules/
+package.json
+package-lock.json
+
+# Go build output
+/sau
+/dist/
+*.exe
+
+# Local configuration and credentials
+.sau.toml
+.env
+*.local
+
+# OS noise
+.DS_Store
