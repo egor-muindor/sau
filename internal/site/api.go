@@ -94,11 +94,11 @@ func (c *Client) Series(ctx context.Context, id int) (Series, error) {
 
 func (c *Client) Episodes(ctx context.Context, seriesID int) ([]Episode, error) {
 	var raw []struct {
-		ID          int    `json:"id"`
-		SeriesID    int    `json:"seriesId"`
-		EpisodeInt  string `json:"episodeInt"`
-		EpisodeFull string `json:"episodeFull"`
-		EpisodeType string `json:"episodeType"`
+		ID          int            `json:"id"`
+		SeriesID    int            `json:"seriesId"`
+		EpisodeInt  numberOrString `json:"episodeInt"`
+		EpisodeFull string         `json:"episodeFull"`
+		EpisodeType string         `json:"episodeType"`
 	}
 	// The limit is explicit for the same reason as on translations: the default
 	// page size of the API is not documented and has changed before.
@@ -114,7 +114,7 @@ func (c *Client) Episodes(ctx context.Context, seriesID int) ([]Episode, error) 
 			continue
 		}
 		out = append(out, Episode{
-			ID: e.ID, EpisodeInt: e.EpisodeInt,
+			ID: e.ID, EpisodeInt: string(e.EpisodeInt),
 			EpisodeFull: e.EpisodeFull, EpisodeType: e.EpisodeType,
 		})
 	}
@@ -238,4 +238,25 @@ func episodeNumberEqual(a, b string) bool {
 		return af == bf
 	}
 	return a == b
+}
+
+// numberOrString decodes a JSON field the API sends either as a number or as a
+// string: episodeInt is 11 for whole episodes and "5.5" for fractional ones.
+type numberOrString string
+
+func (n *numberOrString) UnmarshalJSON(b []byte) error {
+	if len(b) > 0 && b[0] == '"' {
+		var s string
+		if err := json.Unmarshal(b, &s); err != nil {
+			return err
+		}
+		*n = numberOrString(s)
+		return nil
+	}
+	var num json.Number
+	if err := json.Unmarshal(b, &num); err != nil {
+		return err
+	}
+	*n = numberOrString(num.String())
+	return nil
 }

@@ -21,3 +21,9 @@ package-lock.json
 
 # OS noise
 .DS_Store
+
+# Video and subtitle files kept next to the tool for uploading
+*.mp4
+*.mkv
+*.ass
+*.srt

@@ -299,3 +299,25 @@ func TestFindPublishedMatchesEpisodeNumerically(t *testing.T) {
 		t.Errorf("FindPublished(\"5\") = %+v, want none: 5.5 is a different episode", got)
 	}
 }
+
+// The live API sends episodeInt as a JSON number for whole episodes and as a
+// string for fractional ones; both must decode.
+func TestEpisodesAcceptNumericEpisodeInt(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/episodes", func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"data":[
+			{"id":11,"seriesId":36866,"episodeInt":11,"episodeFull":"11 серия","episodeType":"tv"},
+			{"id":12,"seriesId":36866,"episodeInt":"5.5","episodeFull":"5.5 серия","episodeType":"tv"}
+		]}`))
+	})
+	srv := newTestServer(t, mux)
+	c := newTestClient(t, srv.URL)
+
+	got, err := c.Episodes(context.Background(), 36866)
+	if err != nil {
+		t.Fatalf("Episodes: %v", err)
+	}
+	if len(got) != 2 || got[0].EpisodeInt != "11" || got[1].EpisodeInt != "5.5" {
+		t.Fatalf("Episodes = %+v, want episodeInt 11 and 5.5 as strings", got)
+	}
+}
