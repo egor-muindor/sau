@@ -138,6 +138,10 @@ type Outcome struct {
 	State         *UploadState
 }
 
+// Runner performs publications. One Runner may be driven by several Run calls
+// at once (RunBatch does this): the collaborators are shared and the form
+// submissions are serialized by the submit lock, so that the CSRF token of a
+// freshly loaded page is used before another run loads the next one.
 type Runner struct {
 	Site     Site
 	Uploader Uploader
@@ -146,6 +150,23 @@ type Runner struct {
 	Report   Reporter
 	Now      func() time.Time
 	Stat     func(string) (os.FileInfo, error)
+
+	// submitMu serializes "fresh form → Submit → phase write". It is a
+	// pointer so that the per-item runners of a batch, each with its own
+	// reporter, share one lock; submitLock builds it on first use.
+	submitMu *sync.Mutex
+	lockOnce sync.Once
+}
+
+// submitLock returns the mutex that serializes form submissions, building it
+// on first use. A runner built with a lock already set keeps it.
+func (r *Runner) submitLock() *sync.Mutex {
+	r.lockOnce.Do(func() {
+		if r.submitMu == nil {
+			r.submitMu = &sync.Mutex{}
+		}
+	})
+	return r.submitMu
 }
 
 func (r *Runner) now() time.Time {
@@ -746,6 +767,123 @@ func (r *Runner) submitOnce(ctx context.Context, rc *runCtx, form site.CreateFor
 	return r.Site.Submit(ctx, form, rc.req.Draft, rc.req.Channel, up)
 }
 
+// submitLocked is the third step: a fresh form for the CSRF token, then the
+// submit with its retry rules. It runs under the submit lock, so that the
+// runs of a batch send their forms one at a time; with a single run the lock
+// is uncontended and the behaviour is exactly the sequential one.
+//
+// submitted is false when the form was deliberately not sent (NoSubmit); the
+// outcome then carries the hidden fields. On an error the outcome carries the
+// state, as before, and err says what happened.
+func (r *Runner) submitLocked(ctx context.Context, rc *runCtx, up site.UploadedFields) (out Outcome, res site.SubmitResult, submitted bool, err error) {
+	mu := r.submitLock()
+	mu.Lock()
+	defer mu.Unlock()
+	req := rc.req
+
+	// The CSRF token changes on every page load, so it must come from a form
+	// fetched after the upload.
+	form2, err := r.createForm(ctx, req)
+	if err != nil {
+		return Outcome{}, site.SubmitResult{}, false, err
+	}
+	videoField := site.EncodeUploadField(up.Video, form2.Video)
+	subField := site.EncodeUploadField(up.Sub, form2.Sub)
+
+	if req.NoSubmit {
+		r.info("the file is uploaded; the form was not submitted (--no-submit)")
+		return Outcome{VideoField: videoField, SubField: subField, State: rc.st}, site.SubmitResult{}, false, nil
+	}
+
+	const notSentAttempts = 3
+	reloggedIn := false
+	for attempt := 1; ; attempt++ {
+		res, err = r.submitOnce(ctx, rc, form2, up)
+		if err == nil {
+			break
+		}
+		if errors.Is(err, errStateLost) {
+			return Outcome{State: rc.st}, site.SubmitResult{}, false, err
+		}
+		if isCancellation(err) {
+			// The state stays in the submitting phase, which is the safe
+			// reading: the next run asks instead of sending again.
+			return Outcome{State: rc.st}, site.SubmitResult{}, false, err
+		}
+
+		var rejected *site.RejectedError
+		var unknown *site.UnknownOutcomeError
+		var notSent *site.NotSentError
+		switch {
+		case errors.As(err, &rejected):
+			// The site created nothing; show why and keep the upload.
+			for _, m := range rejected.Messages {
+				r.warn(m)
+			}
+			rc.st.Phase = PhaseUploaded
+			_ = r.saveState(rc)
+			return Outcome{State: rc.st}, site.SubmitResult{}, false, err
+
+		case errors.As(err, &unknown):
+			// The request left; nobody knows what happened on the other side.
+			// An automatic retry would risk a duplicate publication, so this
+			// phase has no automatic exit at all.
+			rc.st.Phase = PhaseSubmitUnknown
+			if serr := r.saveState(rc); serr != nil {
+				return Outcome{}, site.SubmitResult{}, false, serr
+			}
+			r.warn("the form was sent but the outcome is unknown; it will be resolved by you, not automatically")
+			return Outcome{State: rc.st}, site.SubmitResult{}, false, &UnknownOutcomeError{State: rc.st}
+
+		case errors.Is(err, site.ErrNotAuthorized):
+			// The site answered with the login page, which is its way of
+			// saying the form was not accepted. Nothing was created, so the
+			// marker comes back off and one re-login is safe. The token
+			// belonged to the dead session, so a fresh form comes with it.
+			rc.st.Phase = PhaseUploaded
+			_ = r.saveState(rc)
+			if reloggedIn {
+				return Outcome{State: rc.st}, site.SubmitResult{}, false, ErrAuth
+			}
+			reloggedIn = true
+			if lerr := r.relogin(ctx, req); lerr != nil {
+				return Outcome{State: rc.st}, site.SubmitResult{}, false, lerr
+			}
+			fresh, ferr := r.createForm(ctx, req)
+			if ferr != nil {
+				return Outcome{State: rc.st}, site.SubmitResult{}, false, ferr
+			}
+			form2 = fresh
+			videoField = site.EncodeUploadField(up.Video, form2.Video)
+			subField = site.EncodeUploadField(up.Sub, form2.Sub)
+			continue
+
+		case errors.As(err, &notSent) && attempt < notSentAttempts:
+			// The request provably never left, so the marker can come back off.
+			rc.st.Phase = PhaseUploaded
+			_ = r.saveState(rc)
+			r.warn(fmt.Sprintf("the form did not reach the server (attempt %d of %d); retrying",
+				attempt, notSentAttempts))
+			continue
+
+		case errors.As(err, &notSent):
+			// Out of attempts, but still the class that provably never left
+			// the machine: the marker comes off and the upload is kept.
+			rc.st.Phase = PhaseUploaded
+			_ = r.saveState(rc)
+			return Outcome{State: rc.st}, site.SubmitResult{}, false, &UploadFailedError{Err: err}
+
+		default:
+			// Fail closed. An error nobody classified could mean anything,
+			// including a form that arrived; rolling the marker back would
+			// invite the next run to send it a second time. The marker stays
+			// and a human settles it.
+			return Outcome{State: rc.st}, site.SubmitResult{}, false, &UploadFailedError{Err: err}
+		}
+	}
+	return Outcome{VideoField: videoField, SubField: subField}, res, true, nil
+}
+
 // Run performs the whole publication: fresh form, upload, fresh form again for
 // the CSRF, submit.
 func (r *Runner) Run(ctx context.Context, req Request) (Outcome, error) {
@@ -777,107 +915,12 @@ func (r *Runner) Run(ctx context.Context, req Request) (Outcome, error) {
 		return Outcome{}, err
 	}
 
-	// The CSRF token changes on every page load, so it must come from a form
-	// fetched after the upload.
-	form2, err := r.createForm(ctx, req)
+	out, res, submitted, err := r.submitLocked(ctx, rc, up)
 	if err != nil {
-		return Outcome{}, err
+		return out, err
 	}
-	videoField := site.EncodeUploadField(up.Video, form2.Video)
-	subField := site.EncodeUploadField(up.Sub, form2.Sub)
-
-	if req.NoSubmit {
-		r.info("the file is uploaded; the form was not submitted (--no-submit)")
-		return Outcome{VideoField: videoField, SubField: subField, State: rc.st}, nil
-	}
-
-	const notSentAttempts = 3
-	var res site.SubmitResult
-	reloggedIn := false
-	for attempt := 1; ; attempt++ {
-		var err error
-		res, err = r.submitOnce(ctx, rc, form2, up)
-		if err == nil {
-			break
-		}
-		if errors.Is(err, errStateLost) {
-			return Outcome{State: rc.st}, err
-		}
-		if isCancellation(err) {
-			// The state stays in the submitting phase, which is the safe
-			// reading: the next run asks instead of sending again.
-			return Outcome{State: rc.st}, err
-		}
-
-		var rejected *site.RejectedError
-		var unknown *site.UnknownOutcomeError
-		var notSent *site.NotSentError
-		switch {
-		case errors.As(err, &rejected):
-			// The site created nothing; show why and keep the upload.
-			for _, m := range rejected.Messages {
-				r.warn(m)
-			}
-			rc.st.Phase = PhaseUploaded
-			_ = r.saveState(rc)
-			return Outcome{State: rc.st}, err
-
-		case errors.As(err, &unknown):
-			// The request left; nobody knows what happened on the other side.
-			// An automatic retry would risk a duplicate publication, so this
-			// phase has no automatic exit at all.
-			rc.st.Phase = PhaseSubmitUnknown
-			if serr := r.saveState(rc); serr != nil {
-				return Outcome{}, serr
-			}
-			r.warn("the form was sent but the outcome is unknown; it will be resolved by you, not automatically")
-			return Outcome{State: rc.st}, &UnknownOutcomeError{State: rc.st}
-
-		case errors.Is(err, site.ErrNotAuthorized):
-			// The site answered with the login page, which is its way of
-			// saying the form was not accepted. Nothing was created, so the
-			// marker comes back off and one re-login is safe. The token
-			// belonged to the dead session, so a fresh form comes with it.
-			rc.st.Phase = PhaseUploaded
-			_ = r.saveState(rc)
-			if reloggedIn {
-				return Outcome{State: rc.st}, ErrAuth
-			}
-			reloggedIn = true
-			if lerr := r.relogin(ctx, req); lerr != nil {
-				return Outcome{State: rc.st}, lerr
-			}
-			fresh, ferr := r.createForm(ctx, req)
-			if ferr != nil {
-				return Outcome{State: rc.st}, ferr
-			}
-			form2 = fresh
-			videoField = site.EncodeUploadField(up.Video, form2.Video)
-			subField = site.EncodeUploadField(up.Sub, form2.Sub)
-			continue
-
-		case errors.As(err, &notSent) && attempt < notSentAttempts:
-			// The request provably never left, so the marker can come back off.
-			rc.st.Phase = PhaseUploaded
-			_ = r.saveState(rc)
-			r.warn(fmt.Sprintf("the form did not reach the server (attempt %d of %d); retrying",
-				attempt, notSentAttempts))
-			continue
-
-		case errors.As(err, &notSent):
-			// Out of attempts, but still the class that provably never left
-			// the machine: the marker comes off and the upload is kept.
-			rc.st.Phase = PhaseUploaded
-			_ = r.saveState(rc)
-			return Outcome{State: rc.st}, &UploadFailedError{Err: err}
-
-		default:
-			// Fail closed. An error nobody classified could mean anything,
-			// including a form that arrived; rolling the marker back would
-			// invite the next run to send it a second time. The marker stays
-			// and a human settles it.
-			return Outcome{State: rc.st}, &UploadFailedError{Err: err}
-		}
+	if !submitted {
+		return out, nil
 	}
 
 	// From here the publication exists. Nothing below may fail the run: the
@@ -891,5 +934,6 @@ func (r *Runner) Run(ctx context.Context, req Request) (Outcome, error) {
 		r.warn("could not drop the state file: " + err.Error() +
 			"; it stays in the submitting phase and the next run will ask about it")
 	}
-	return Outcome{TranslationID: res.TranslationID, VideoField: videoField, SubField: subField}, nil
+	out.TranslationID = res.TranslationID
+	return out, nil
 }

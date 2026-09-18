@@ -4,7 +4,10 @@ import (
 	"context"
 	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"sau/internal/fineup"
 	"sau/internal/translation"
@@ -158,4 +161,46 @@ func TestBeginPrecedesFirstChunkOfEachFile(t *testing.T) {
 	}
 	eq(t, "order", strings.Join(rep.entries(), ","),
 		"begin:episode 01 (1080p).mp4,chunk:0,chunk:1,begin:episode 01.ass,chunk:0,chunk:1")
+}
+
+// Two runs on one Runner may upload at the same time, but they must not
+// submit at the same time: the CSRF token belongs to the page loaded last,
+// and two interleaved "fresh page → submit" sequences would leave one run
+// holding a token the site has already replaced.
+func TestSubmitsOfConcurrentRunsDoNotOverlap(t *testing.T) {
+	h := newHarness(t)
+	second := h.writeVideo("episode 02 (1080p).mp4")
+
+	var inFlight, maxSeen atomic.Int32
+	h.site.submit = func(call int) (SubmitResultAlias, error) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			m := maxSeen.Load()
+			if n <= m || maxSeen.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+		return SubmitResultAlias{TranslationID: 4242, Location: "/translations/update/4242"}, nil
+	}
+
+	reqs := []Request{h.request(), h.requestFor(second, "2")}
+	errs := make([]error, len(reqs))
+	var wg sync.WaitGroup
+	for i, req := range reqs {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, errs[i] = h.run.Run(context.Background(), req)
+		}()
+	}
+	wg.Wait()
+	for i, err := range errs {
+		if err != nil {
+			t.Errorf("run %d: %v", i, err)
+		}
+	}
+	eq(t, "submits", h.site.submits, 2)
+	eq(t, "submits in flight at once", maxSeen.Load(), int32(1))
 }

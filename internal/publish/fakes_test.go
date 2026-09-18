@@ -24,7 +24,12 @@ import (
 // sequence of steps, and answers from the configured hooks. The hooks take the
 // call number because the site answers differently on a repeated page load:
 // the CSRF token changes on every GET of the form.
+//
+// The counters and the call log are under a mutex, because a batch drives the
+// same site from several runs at once. The hooks run outside the lock: a hook
+// that sleeps to widen a race window must not serialize the fake itself.
 type fakeSite struct {
+	mu    sync.Mutex
 	calls []string
 
 	login  func(call int) error
@@ -48,34 +53,45 @@ type fakeSite struct {
 }
 
 func (s *fakeSite) Login(ctx context.Context, user string, pass secrets.Secret) error {
+	s.mu.Lock()
 	s.calls = append(s.calls, "Login")
 	s.logins++
+	n := s.logins
+	s.mu.Unlock()
 	if s.login != nil {
-		return s.login(s.logins)
+		return s.login(n)
 	}
 	return nil
 }
 
 func (s *fakeSite) CreateForm(ctx context.Context, seriesID int, ch translation.Channel) (site.CreateForm, error) {
+	s.mu.Lock()
 	s.calls = append(s.calls, fmt.Sprintf("CreateForm(%d,%s)", seriesID, ch))
 	s.forms++
+	n := s.forms
+	s.mu.Unlock()
 	if s.form != nil {
-		return s.form(s.forms, seriesID, ch)
+		return s.form(n, seriesID, ch)
 	}
-	return defaultForm(s.forms), nil
+	return defaultForm(n), nil
 }
 
 func (s *fakeSite) Submit(ctx context.Context, f site.CreateForm, d translation.Draft, ch translation.Channel, up site.UploadedFields) (site.SubmitResult, error) {
+	s.mu.Lock()
 	s.calls = append(s.calls, "Submit")
 	s.submits++
+	n := s.submits
 	s.lastForm, s.lastDraft, s.lastCh, s.lastUp = f, d, ch, up
+	s.mu.Unlock()
 	if s.submit != nil {
-		return s.submit(s.submits)
+		return s.submit(n)
 	}
 	return site.SubmitResult{TranslationID: 4242, Location: "/translations/update/4242"}, nil
 }
 
 func (s *fakeSite) FindPublished(ctx context.Context, seriesID int, episode string, t translation.TranslationType, authors string) ([]site.Translation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.calls = append(s.calls, "FindPublished")
 	s.apiCalls++
 	return s.found, s.findErr
@@ -109,6 +125,7 @@ func defaultForm(call int) site.CreateForm {
 // hook from every chunk goroutine and from the keep-alive one, so a hook that is
 // not safe for concurrent use would be a bug that only shows up under -race.
 type fakeUploader struct {
+	mu      sync.Mutex
 	specs   []fineup.Spec
 	calls   int
 	parts   int            // total number of parts in the file
@@ -119,29 +136,34 @@ type fakeUploader struct {
 }
 
 func (u *fakeUploader) Upload(ctx context.Context, s fineup.Spec, on func(fineup.Event)) (fineup.Result, error) {
+	u.mu.Lock()
 	u.calls++
+	call := u.calls
 	u.specs = append(u.specs, s)
+	parts, extra, respond := u.parts, u.extra, u.respond
+	u.mu.Unlock()
+
 	done := map[int]bool{}
 	for _, i := range s.Done {
 		done[i] = true
 	}
-	for i := 0; i < u.parts; i++ {
+	for i := 0; i < parts; i++ {
 		if done[i] {
 			continue
 		}
 		emitConcurrently(on, fineup.Event{Kind: fineup.EventChunkDone, Part: i, Host: hostFor(s, i), Bytes: s.PartSize})
 	}
-	for _, e := range u.extra {
+	for _, e := range extra {
 		emitConcurrently(on, e)
 	}
-	if u.respond != nil {
-		return u.respond(u.calls, s)
+	if respond != nil {
+		return respond(call, s)
 	}
 	return fineup.Result{
 		UUID:     s.UUID,
 		Name:     filepath.Base(s.Path),
 		Size:     1024,
-		Parts:    u.parts,
+		Parts:    parts,
 		Endpoint: s.Base,
 		LastHost: hostFor(s, 0),
 	}, nil
@@ -161,6 +183,8 @@ func emitConcurrently(on func(fineup.Event), e fineup.Event) {
 }
 
 func (u *fakeUploader) Delete(ctx context.Context, endpoint, uuid string) error {
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	u.deletes = append(u.deletes, endpoint+" "+uuid)
 	return u.delErr
 }
@@ -175,6 +199,8 @@ func hostFor(s fineup.Spec, i int) string {
 // lastSpec returns the Spec of the last Upload call.
 func (u *fakeUploader) lastSpec(t *testing.T) fineup.Spec {
 	t.Helper()
+	u.mu.Lock()
+	defer u.mu.Unlock()
 	if len(u.specs) == 0 {
 		t.Fatal("no Upload calls recorded")
 	}
@@ -374,6 +400,25 @@ func (h *harness) writeSub() string {
 	return p
 }
 
+// writeVideo creates another video file in the harness directory and returns
+// its path. Batch tests need several files with distinct state keys.
+func (h *harness) writeVideo(name string) string {
+	h.t.Helper()
+	p := filepath.Join(h.dir, name)
+	if err := os.WriteFile(p, make([]byte, 1024), 0o644); err != nil {
+		h.t.Fatal(err)
+	}
+	return p
+}
+
+// requestFor is request() for another video file and episode number.
+func (h *harness) requestFor(video, episode string) Request {
+	req := h.request()
+	req.Draft.VideoPath = video
+	req.Draft.EpisodeNumber = episode
+	return req
+}
+
 func (h *harness) request() Request {
 	return Request{
 		Draft: translation.Draft{
@@ -400,24 +445,34 @@ func (h *harness) key() string {
 	return k
 }
 
-// putState stores st under the video's key, filling size and mtime from disk
-// so that decideResume sees an unchanged file.
-func (h *harness) putState(st *UploadState) {
+// putStateFor stores st under the key of video, filling size and mtime from
+// disk so that decideResume sees an unchanged file.
+func (h *harness) putStateFor(video string, st *UploadState) {
 	h.t.Helper()
-	fi, err := os.Stat(h.video)
+	fi, err := os.Stat(video)
 	if err != nil {
 		h.t.Fatal(err)
 	}
-	st.Path = h.video
+	st.Path = video
 	if st.Size == 0 {
 		st.Size = fi.Size()
 	}
 	if st.ModTime.IsZero() {
 		st.ModTime = fi.ModTime()
 	}
-	if err := h.store.Save(h.key(), st); err != nil {
+	k, err := statefile.Key(video)
+	if err != nil {
 		h.t.Fatal(err)
 	}
+	if err := h.store.Save(k, st); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// putState stores st under the harness video's key.
+func (h *harness) putState(st *UploadState) {
+	h.t.Helper()
+	h.putStateFor(h.video, st)
 }
 
 // state loads the stored state; it fails the test if there is none.
