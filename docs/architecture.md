@@ -240,6 +240,7 @@ sau resolve  <video> --submitted | --resend
 sau series   <id>         справка по тайтлу из read-only API
 sau stats    [--series ID] [--since DATE] [--json]
                           статистика по журналу публикаций
+sau version               версия сборки
 ```
 
 Имя файла и флаги идут в любом порядке: разбор собирает позиционные аргументы

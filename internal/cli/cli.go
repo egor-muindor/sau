@@ -74,6 +74,7 @@ const usageText = `usage: sau <command> [flags]
   resolve  <video> --submitted | --resend
   series   <id>                title information from the read-only API
   stats    [--series ID] [--since DATE] [--json]
+  version                      print the version
 
 exit codes: 0 ok, 1 error, 2 usage, 3 authorization, 4 rejected by the site,
 5 upload failed (state kept), 6 submission outcome unknown, 130 interrupted
@@ -163,6 +164,8 @@ func dispatch(ctx context.Context, args []string, d Deps) error {
 	case "help", "-h", "--help":
 		fmt.Fprint(d.Stdout, usageText)
 		return nil
+	case "version", "--version", "-V":
+		return cmdVersion(d)
 	case "login":
 		return cmdLogin(ctx, rest, d)
 	case "upload":
