@@ -85,7 +85,7 @@ func (r *Runner) Abort(ctx context.Context, path string) error {
 	if st == nil {
 		return statefile.ErrNotFound
 	}
-	if st.Phase.needsHumanDecision() {
+	if st.Phase.NeedsDecision() {
 		// The snapshot in this state is the only record of what went out.
 		// Deleting it, or the chunks, before the question is answered would
 		// destroy the evidence the answer depends on.

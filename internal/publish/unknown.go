@@ -99,7 +99,7 @@ func (r *Runner) Resolve(ctx context.Context, path string, submitted bool) error
 	if st == nil {
 		return statefile.ErrNotFound
 	}
-	if !st.Phase.needsHumanDecision() {
+	if !st.Phase.NeedsDecision() {
 		return fmt.Errorf("publish: %s: the state is in phase %q, there is no unknown outcome to resolve",
 			path, st.Phase)
 	}

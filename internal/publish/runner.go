@@ -74,10 +74,10 @@ const (
 	PhaseSubmitUnknown Phase = "submit_unknown"
 )
 
-// needsHumanDecision reports whether a saved state describes a form that may
+// NeedsDecision reports whether a saved state describes a form that may
 // already be on the site. Both phases mean the same thing to the next run:
-// ask, do not send.
-func (p Phase) needsHumanDecision() bool {
+// ask, do not send. cli uses it to keep such files out of a batch.
+func (p Phase) NeedsDecision() bool {
 	return p == PhaseSubmitting || p == PhaseSubmitUnknown
 }
 
@@ -598,7 +598,7 @@ func (r *Runner) prepareState(ctx context.Context, req Request, key string) (*ru
 		return nil, nil, err
 	}
 	if req.Fresh && st != nil {
-		if st.Phase.needsHumanDecision() {
+		if st.Phase.NeedsDecision() {
 			// Starting over would erase the snapshot of a form that may
 			// already have been accepted, and with it any chance of telling
 			// a duplicate from a fresh publication.
@@ -615,7 +615,7 @@ func (r *Runner) prepareState(ctx context.Context, req Request, key string) (*ru
 
 	// A submission whose outcome nobody knows is settled before anything
 	// touches the network.
-	if st != nil && st.Phase.needsHumanDecision() {
+	if st != nil && st.Phase.NeedsDecision() {
 		done, err := r.askUnknown(key, st)
 		if err != nil {
 			return nil, nil, err
