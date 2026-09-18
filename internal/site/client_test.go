@@ -3,6 +3,7 @@ package site
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -10,6 +11,8 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -125,7 +128,7 @@ func TestLoginStoresCookies(t *testing.T) {
 		t.Fatalf("Login: %v", err)
 	}
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/probe", nil)
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.httpClient(c.Mirror()).Do(req)
 	if err != nil {
 		t.Fatalf("probe: %v", err)
 	}
@@ -849,5 +852,53 @@ func TestNewNormalizesAndValidatesMirrors(t *testing.T) {
 		if _, err := New(Options{Mirrors: []string{m}, Transport: http.DefaultTransport}); err == nil {
 			t.Errorf("New with mirror %q: err = nil, want an error", m)
 		}
+	}
+}
+
+// The runs of a batch share one Client. A failover in one goroutine moves the
+// mirror index and adds a per-mirror client while the others read both, so
+// without a lock the race detector fires. And when several goroutines report
+// the same dead mirror, the client must step past it once, not once per
+// report: otherwise the rotation lands back on the dead one and a run burns
+// its three attempts there.
+func TestCreateFormConcurrentDuringFailover(t *testing.T) {
+	page := mustReadFixture(t, "create_form.html")
+	var hits atomic.Int32
+	mux := http.NewServeMux()
+	mux.HandleFunc("/translations/create", func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.Write(page)
+	})
+	alive := newTestServer(t, mux)
+	dead := deadMirror(t)
+	c := newTestClient(t, dead, alive.URL)
+
+	const n = 8
+	errs := make(chan error, n)
+	var wg sync.WaitGroup
+	for range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			f, err := c.CreateForm(context.Background(), 36866, translation.ChannelCDN)
+			if err == nil && f.CSRF != testCSRF {
+				err = fmt.Errorf("CSRF = %q", f.CSRF)
+			}
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Errorf("CreateForm: %v", err)
+		}
+	}
+	if c.Mirror() != alive.URL {
+		t.Errorf("Mirror() = %q, want the alive mirror after failover", c.Mirror())
+	}
+	if got := hits.Load(); got < n {
+		t.Errorf("alive mirror hit %d times, want at least %d", got, n)
 	}
 }

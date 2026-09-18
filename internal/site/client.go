@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"sau/internal/secrets"
@@ -30,21 +31,27 @@ type Options struct {
 // Client talks to the Yii pages and the read-only API of one site mirror.
 // The session is bound to a domain, so cookies are kept per mirror.
 //
-// A Client is not safe for concurrent use: the current mirror and the per-mirror
-// client cache are plain fields with no locking. One publish run drives one
-// Client from one goroutine; the parallelism of an upload lives in fineup, which
-// talks to the upload servers and not to the site.
+// A Client is safe for concurrent use: the runs of a batch share one. The
+// current mirror and the per-mirror client cache are guarded by mu; the cookie
+// jars and the transport are safe on their own. Every request picks its mirror
+// once, at the start of the attempt, and uses that mirror for the URL, the
+// cookie jar and the channel cookie, so a failover in another goroutine cannot
+// split one attempt across two hosts.
 type Client struct {
 	mirrors []string
-	idx     int
 	tr      http.RoundTripper
 	jars    func(host string) http.CookieJar
-	clients map[string]*http.Client
 	sleep   func(time.Duration)
 	ua      string
 
-	// Timeout is passed to the underlying http.Client. Zero means no timeout.
+	// Timeout is passed to the http.Client of a mirror when that client is
+	// built, on the first request to the mirror. Set it before the first
+	// call; zero means no timeout.
 	Timeout time.Duration
+
+	mu      sync.Mutex
+	idx     int
+	clients map[string]*http.Client
 }
 
 const (
@@ -98,23 +105,33 @@ func New(o Options) (*Client, error) {
 }
 
 // Mirror returns the mirror currently in use.
-func (c *Client) Mirror() string { return c.mirrors[c.idx] }
+func (c *Client) Mirror() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.mirrors[c.idx]
+}
 
-func (c *Client) nextMirror() {
-	if len(c.mirrors) > 1 {
+// failOver moves to the next mirror, but only if from is still the current
+// one. Several goroutines may discover the same dead mirror at the same time;
+// each reports it, and the client must step past it exactly once rather than
+// once per report, or the rotation would land back on the dead mirror.
+func (c *Client) failOver(from string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if len(c.mirrors) > 1 && c.mirrors[c.idx] == from {
 		c.idx = (c.idx + 1) % len(c.mirrors)
 	}
 }
 
-// httpClient returns the client bound to the current mirror, building it on
-// first use so that Jars is called once per mirror host.
-func (c *Client) httpClient() *http.Client {
-	m := c.Mirror()
-	if hc, ok := c.clients[m]; ok {
-		hc.Timeout = c.Timeout
+// httpClient returns the client bound to mirror, building it on first use so
+// that Jars is called once per mirror host.
+func (c *Client) httpClient(mirror string) *http.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if hc, ok := c.clients[mirror]; ok {
 		return hc
 	}
-	u, err := url.Parse(m)
+	u, err := url.Parse(mirror)
 	if err != nil {
 		u = &url.URL{}
 	}
@@ -128,17 +145,17 @@ func (c *Client) httpClient() *http.Client {
 			return http.ErrUseLastResponse
 		},
 	}
-	c.clients[m] = hc
+	c.clients[mirror] = hc
 	return hc
 }
 
-func (c *Client) newRequest(ctx context.Context, method, path string, body string) (*http.Request, error) {
+func (c *Client) newRequest(ctx context.Context, mirror, method, path string, body string) (*http.Request, error) {
 	var r *http.Request
 	var err error
 	if body == "" && method == http.MethodGet {
-		r, err = http.NewRequestWithContext(ctx, method, c.Mirror()+path, nil)
+		r, err = http.NewRequestWithContext(ctx, method, mirror+path, nil)
 	} else {
-		r, err = http.NewRequestWithContext(ctx, method, c.Mirror()+path, strings.NewReader(body))
+		r, err = http.NewRequestWithContext(ctx, method, mirror+path, strings.NewReader(body))
 	}
 	if err != nil {
 		return nil, err
@@ -160,12 +177,13 @@ func (c *Client) Login(ctx context.Context, user string, pass secrets.Secret) er
 	if err != nil {
 		return err
 	}
+	m := c.Mirror()
 	body := EncodeLoginForm(page.CSRF, user, pass)
-	req, err := c.newRequest(ctx, http.MethodPost, "/users/login", string(body))
+	req, err := c.newRequest(ctx, m, http.MethodPost, "/users/login", string(body))
 	if err != nil {
 		return err
 	}
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.httpClient(m).Do(req)
 	if err != nil {
 		// The POST itself is not repeated here: one login attempt per call keeps
 		// the answer unambiguous for the caller. But a mirror that provably
@@ -174,7 +192,7 @@ func (c *Client) Login(ctx context.Context, user string, pass secrets.Secret) er
 		cerr := classifyTransportErr(err)
 		var ns *NotSentError
 		if errors.As(cerr, &ns) {
-			c.nextMirror()
+			c.failOver(m)
 		}
 		return cerr
 	}
@@ -198,7 +216,7 @@ func (c *Client) Login(ctx context.Context, user string, pass secrets.Secret) er
 // getPage performs a retrying GET and parses the answer as a site page.
 // The login page is reported as ErrNotAuthorized by the callers, not here:
 // Login itself must be able to see it.
-func (c *Client) getPage(ctx context.Context, path string, prepare func()) (Page, error) {
+func (c *Client) getPage(ctx context.Context, path string, prepare func(mirror string)) (Page, error) {
 	resp, err := c.doGET(ctx, path, prepare)
 	if err != nil {
 		return Page{}, err
@@ -219,25 +237,26 @@ func getBackoff(attempt int) time.Duration {
 }
 
 // doGET performs a GET with retries, calling prepare (may be nil) before each
-// attempt. Only GET and the read-only API retry;
-// a form submit never does, because it is not idempotent. On an error that
-// proves the request never left this machine the next mirror is tried.
-func (c *Client) doGET(ctx context.Context, path string, prepare func()) (*http.Response, error) {
+// attempt with the mirror that attempt targets. Only GET and the read-only API
+// retry; a form submit never does, because it is not idempotent. On an error
+// that proves the request never left this machine the next mirror is tried.
+func (c *Client) doGET(ctx context.Context, path string, prepare func(mirror string)) (*http.Response, error) {
 	var lastErr error
 	for attempt := 1; attempt <= maxGetAttempts; attempt++ {
-		// prepare runs against the mirror this attempt actually targets. A
-		// failover inside this loop moves the request to another host with
-		// another cookie jar, so anything the request depends on — the channel
-		// cookie above all — has to be put in place per attempt, not once
-		// before the loop.
+		// The mirror is picked once per attempt. A failover inside this loop
+		// moves the request to another host with another cookie jar, so
+		// anything the request depends on — the channel cookie above all —
+		// has to be put in place per attempt, on that host, not once before
+		// the loop.
+		m := c.Mirror()
 		if prepare != nil {
-			prepare()
+			prepare(m)
 		}
-		req, err := c.newRequest(ctx, http.MethodGet, path, "")
+		req, err := c.newRequest(ctx, m, http.MethodGet, path, "")
 		if err != nil {
 			return nil, err
 		}
-		resp, err := c.httpClient().Do(req)
+		resp, err := c.httpClient(m).Do(req)
 		switch {
 		case err != nil:
 			lastErr = err
@@ -245,7 +264,7 @@ func (c *Client) doGET(ctx context.Context, path string, prepare func()) (*http.
 			if errors.As(classifyTransportErr(err), &ns) {
 				// The request provably never reached this mirror: the mirror
 				// itself may be blocked, so move on to the next one.
-				c.nextMirror()
+				c.failOver(m)
 			}
 		case retryableStatus(resp.StatusCode):
 			lastErr = &HTTPError{Status: resp.StatusCode, URL: req.URL.String()}
@@ -266,16 +285,16 @@ func (c *Client) doGET(ctx context.Context, path string, prepare func()) (*http.
 	return nil, lastErr
 }
 
-// setChannelCookie puts upload-channel into the jar of the current mirror.
-// It is set on every request, including the default channel, so that the
-// channel a file was uploaded in is a recorded fact and not a default that
-// may change under the user's feet.
-func (c *Client) setChannelCookie(ch translation.Channel) {
-	u, err := url.Parse(c.Mirror())
+// setChannelCookie puts upload-channel into the jar of mirror. It is set on
+// every request, including the default channel, so that the channel a file
+// was uploaded in is a recorded fact and not a default that may change under
+// the user's feet.
+func (c *Client) setChannelCookie(mirror string, ch translation.Channel) {
+	u, err := url.Parse(mirror)
 	if err != nil {
 		return
 	}
-	jar := c.httpClient().Jar
+	jar := c.httpClient(mirror).Jar
 	if jar == nil {
 		return
 	}
@@ -291,7 +310,7 @@ func (c *Client) setChannelCookie(ch translation.Channel) {
 // starts from a freshly parsed page.
 func (c *Client) CreateForm(ctx context.Context, seriesID int, ch translation.Channel) (CreateForm, error) {
 	p, err := c.getPage(ctx, "/translations/create?seriesId="+strconv.Itoa(seriesID),
-		func() { c.setChannelCookie(ch) })
+		func(mirror string) { c.setChannelCookie(mirror, ch) })
 	if err != nil {
 		return CreateForm{}, err
 	}
@@ -320,13 +339,14 @@ func (c *Client) Submit(ctx context.Context, f CreateForm, d translation.Draft, 
 	subField := EncodeUploadField(up.Sub, f.Sub)
 	body := EncodeSubmitForm(f.CSRF, d, ch, videoField, subField)
 
-	req, err := c.newRequest(ctx, http.MethodPost,
+	m := c.Mirror()
+	req, err := c.newRequest(ctx, m, http.MethodPost,
 		"/translations/create?seriesId="+strconv.Itoa(d.SeriesID), string(body))
 	if err != nil {
 		return SubmitResult{}, err
 	}
 
-	resp, err := c.httpClient().Do(req)
+	resp, err := c.httpClient(m).Do(req)
 	if err != nil {
 		return SubmitResult{}, classifySubmitErr(err)
 	}
