@@ -1,0 +1,30 @@
+version: 2
+
+project_name: sau
+
+builds:
+  - main: ./cmd/sau
+    binary: sau
+    env:
+      - CGO_ENABLED=0
+    goos: [darwin, linux, windows]
+    goarch: [amd64, arm64]
+    ldflags:
+      - -s -w -X sau/internal/cli.Version={{ .Version }}
+
+archives:
+  # Version-free names so that the README can link to
+  # releases/latest/download/<name> and stay valid across releases.
+  - name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats: [zip]
+
+checksum:
+  name_template: checksums.txt
+
+release:
+  draft: false
+
+changelog:
+  use: git
