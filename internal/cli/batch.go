@@ -164,8 +164,17 @@ func runBatch(ctx context.Context, d Deps, o uploadOpts, cfg config.Config, ch t
 		}
 	}
 
-	if !o.asJSON && len(run) > 0 {
-		printPlan(d.Stdout, run, cfg, ch, o.parallel)
+	// The plan goes to stdout, except under --json, where stdout is the
+	// array and nothing else. The question is still asked there unless
+	// --yes, and nobody should answer it blind: the plan then goes to
+	// stderr, next to the question.
+	if len(run) > 0 {
+		switch {
+		case !o.asJSON:
+			printPlan(d.Stdout, run, cfg, ch, o.parallel)
+		case !o.yes && !o.dryRun:
+			printPlan(d.Stderr, run, cfg, ch, o.parallel)
+		}
 	}
 	for _, it := range pending {
 		fmt.Fprintf(d.Stderr, "sau: %s: an earlier submission is unresolved, not in this batch; run: sau resolve %q --submitted | --resend\n",
@@ -237,6 +246,11 @@ func runBatch(ctx context.Context, d Deps, o uploadOpts, cfg config.Config, ch t
 	if stopMulti != nil {
 		stopMulti()
 	}
+	// With one worker the runs drove the single bar, and the one of the last
+	// file is still redrawing. Run stops it too, but only after this returns,
+	// and the summary is printed here: take it down first, or the header
+	// lands on the bar line.
+	stopProgress()
 	return printSummary(d, o.asJSON, results)
 }
 

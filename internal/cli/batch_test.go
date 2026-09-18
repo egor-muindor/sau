@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +12,8 @@ import (
 	"sau/internal/publish"
 	"sau/internal/site"
 	"sau/internal/translation"
+
+	"go.uber.org/goleak"
 )
 
 const batchTOML = `
@@ -504,5 +507,109 @@ func TestUploadBatchFreshIgnoresSavedChannel(t *testing.T) {
 	}
 	if n := len(h.runner.batchItems); n != 2 {
 		t.Fatalf("batch items = %d, want 2", n)
+	}
+}
+
+// barWatch is a stdout that notices a write made while the bar of the
+// reporter is still redrawing. The summary must never be such a write, or
+// its header lands on the bar line.
+type barWatch struct {
+	w   io.Writer
+	rep **consoleReporter
+	// clash is set when a write finds the bar's goroutine still running.
+	clash bool
+}
+
+func (b *barWatch) Write(p []byte) (int, error) {
+	if r := *b.rep; r != nil {
+		r.mu.Lock()
+		done := r.done
+		r.mu.Unlock()
+		if done != nil {
+			select {
+			case <-done:
+			default:
+				b.clash = true
+			}
+		}
+	}
+	return b.w.Write(p)
+}
+
+// With one worker the batch drives the single bar, and only the next Begin
+// or stopProgress takes a bar down. The summary is printed by the batch
+// itself, before Run's stopProgress, so the batch has to stop the bar first.
+func TestUploadBatchStopsTheBarBeforeTheSummary(t *testing.T) {
+	defer goleak.VerifyNone(t, goleak.IgnoreCurrent())
+	h, files := threeEpisodes(t)
+	h.runner.out = publish.Outcome{TranslationID: 4242}
+
+	var rep *consoleReporter
+	watch := &barWatch{w: &h.out, rep: &rep}
+	h.deps.Stdout = watch
+	h.runner.batchFn = func(items []publish.BatchItem) []publish.BatchResult {
+		// What a real runner leaves behind: the bar of the last file, still
+		// redrawing.
+		rep = newConsoleReporter(h.deps).(*consoleReporter)
+		rep.Begin("episode.mp4", 1000, 2)
+		res := make([]publish.BatchResult, len(items))
+		for i, it := range items {
+			out := h.runner.out
+			res[i] = publish.BatchResult{Item: it, Outcome: &out}
+		}
+		return res
+	}
+
+	if code := h.run("upload", "--yes", files[0], files[1], files[2]); code != ExitOK {
+		t.Fatalf("exit code = %d, stderr = %q", code, h.errOut.String())
+	}
+	if watch.clash {
+		t.Error("the summary was written while the bar was still redrawing")
+	}
+	if !strings.Contains(h.out.String(), "RESULT") {
+		t.Errorf("stdout lacks the summary:\n%s", h.out.String())
+	}
+}
+
+// With --json the plan table stays off stdout, which must remain one JSON
+// array. Without --yes the question is still asked, and nobody should have
+// to answer it blind: the plan goes to stderr, where the question is.
+func TestUploadBatchJSONShowsThePlanBeforeTheQuestion(t *testing.T) {
+	h, files := threeEpisodes(t)
+	h.runner.out = publish.Outcome{TranslationID: 4242}
+	h.deps.Stdin = strings.NewReader("y\n")
+
+	if code := h.run("upload", "--json", files[0], files[1], files[2]); code != ExitOK {
+		t.Fatalf("exit code = %d, stderr = %q", code, h.errOut.String())
+	}
+	errOut := h.errOut.String()
+	plan, question := strings.Index(errOut, "FILE"), strings.Index(errOut, "continue? [y/N]")
+	if plan < 0 || question < 0 || plan > question {
+		t.Errorf("stderr = %q, want the plan table before the question", errOut)
+	}
+	for _, want := range []string{"[T] Show FIX 1080p.mp4", "series 36866, voiceRu, Team (Alice, Bob), channel cdn, parallel 1"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, errOut)
+		}
+	}
+	var got []struct{ Episode string }
+	if err := json.Unmarshal([]byte(h.out.String()), &got); err != nil {
+		t.Fatalf("stdout is not a JSON array: %v; %q", err, h.out.String())
+	}
+	if len(got) != 3 {
+		t.Errorf("results = %+v", got)
+	}
+}
+
+// With --json and --yes there is no question, so there is no plan either:
+// the caller is a script and asked for nothing but the array.
+func TestUploadBatchJSONWithYesPrintsNoPlan(t *testing.T) {
+	h, files := threeEpisodes(t)
+	h.runner.out = publish.Outcome{TranslationID: 4242}
+	if code := h.run("upload", "--json", "--yes", files[0]); code != ExitOK {
+		t.Fatalf("exit code = %d, stderr = %q", code, h.errOut.String())
+	}
+	if strings.Contains(h.errOut.String(), "FILE") {
+		t.Errorf("stderr = %q, want no plan", h.errOut.String())
 	}
 }
