@@ -40,6 +40,11 @@ type fakeSite struct {
 	forms   int
 	submits int
 
+	// dead marks a session the site no longer accepts: CreateForm and Submit
+	// answer with the login page until Login succeeds. Hooks, when set, take
+	// precedence, so that tests without a session model keep their scripts.
+	dead bool
+
 	found   []site.Translation
 	findErr error
 	// apiCalls counts FindPublished only. The success and unknown-outcome
@@ -57,11 +62,24 @@ func (s *fakeSite) Login(ctx context.Context, user string, pass secrets.Secret) 
 	s.calls = append(s.calls, "Login")
 	s.logins++
 	n := s.logins
+	login := s.login
 	s.mu.Unlock()
-	if s.login != nil {
-		return s.login(n)
+	if login != nil {
+		if err := login(n); err != nil {
+			return err
+		}
 	}
+	s.mu.Lock()
+	s.dead = false
+	s.mu.Unlock()
 	return nil
+}
+
+// kill marks the session dead, as the site does when it expires.
+func (s *fakeSite) kill() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.dead = true
 }
 
 func (s *fakeSite) CreateForm(ctx context.Context, seriesID int, ch translation.Channel) (site.CreateForm, error) {
@@ -69,9 +87,13 @@ func (s *fakeSite) CreateForm(ctx context.Context, seriesID int, ch translation.
 	s.calls = append(s.calls, fmt.Sprintf("CreateForm(%d,%s)", seriesID, ch))
 	s.forms++
 	n := s.forms
+	dead := s.dead
 	s.mu.Unlock()
 	if s.form != nil {
 		return s.form(n, seriesID, ch)
+	}
+	if dead {
+		return site.CreateForm{}, site.ErrNotAuthorized
 	}
 	return defaultForm(n), nil
 }
@@ -81,10 +103,14 @@ func (s *fakeSite) Submit(ctx context.Context, f site.CreateForm, d translation.
 	s.calls = append(s.calls, "Submit")
 	s.submits++
 	n := s.submits
+	dead := s.dead
 	s.lastForm, s.lastDraft, s.lastCh, s.lastUp = f, d, ch, up
 	s.mu.Unlock()
 	if s.submit != nil {
 		return s.submit(n)
+	}
+	if dead {
+		return site.SubmitResult{}, site.ErrNotAuthorized
 	}
 	return site.SubmitResult{TranslationID: 4242, Location: "/translations/update/4242"}, nil
 }
@@ -331,8 +357,10 @@ func (r *fakeReporter) Ask(question string) (bool, error) {
 	return r.answer, nil
 }
 
-// fakeSource is a secrets.Source stub.
+// fakeSource is a secrets.Source stub. The counter is under a mutex because
+// the runs of a batch may ask for the password from several goroutines.
 type fakeSource struct {
+	mu    sync.Mutex
 	pass  string
 	ok    bool
 	err   error
@@ -340,6 +368,8 @@ type fakeSource struct {
 }
 
 func (s *fakeSource) Password(ctx context.Context) (secrets.Secret, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.calls++
 	return secrets.New(s.pass), s.ok, s.err
 }

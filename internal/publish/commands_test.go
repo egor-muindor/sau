@@ -13,20 +13,18 @@ import (
 	"sau/internal/translation"
 )
 
+// A dead session is recovered once: the form is fetched again first (in a
+// batch another run may have logged in meanwhile), then the login happens,
+// then the form is fetched for real.
 func TestReloginOnce(t *testing.T) {
 	h := newHarness(t)
-	h.site.form = func(call int, seriesID int, ch translation.Channel) (site.CreateForm, error) {
-		if call == 1 {
-			return site.CreateForm{}, site.ErrNotAuthorized
-		}
-		return defaultForm(call), nil
-	}
+	h.site.kill()
 
 	if _, err := h.run.Run(context.Background(), h.request()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	eq(t, "calls", strings.Join(h.site.calls[:3], ","),
-		"CreateForm(36866,cdn),Login,CreateForm(36866,cdn)")
+	eq(t, "calls", strings.Join(h.site.calls[:4], ","),
+		"CreateForm(36866,cdn),CreateForm(36866,cdn),Login,CreateForm(36866,cdn)")
 	eq(t, "password lookups", h.pass.calls, 1)
 	eq(t, "logins", h.site.logins, 1)
 }

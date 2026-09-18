@@ -155,18 +155,37 @@ type Runner struct {
 	// pointer so that the per-item runners of a batch, each with its own
 	// reporter, share one lock; submitLock builds it on first use.
 	submitMu *sync.Mutex
+	// loginMu serializes the recovery of a dead session for the same reason:
+	// the runs of a batch share one cookie jar, and two logins interleaved
+	// on it (the login page fetched by one, posted by the other with a
+	// stale token) fail for no good reason.
+	loginMu  *sync.Mutex
 	lockOnce sync.Once
 }
 
 // submitLock returns the mutex that serializes form submissions, building it
 // on first use. A runner built with a lock already set keeps it.
 func (r *Runner) submitLock() *sync.Mutex {
+	r.locks()
+	return r.submitMu
+}
+
+// loginLock returns the mutex that serializes session recovery, building it
+// on first use. A runner built with a lock already set keeps it.
+func (r *Runner) loginLock() *sync.Mutex {
+	r.locks()
+	return r.loginMu
+}
+
+func (r *Runner) locks() {
 	r.lockOnce.Do(func() {
 		if r.submitMu == nil {
 			r.submitMu = &sync.Mutex{}
 		}
+		if r.loginMu == nil {
+			r.loginMu = &sync.Mutex{}
+		}
 	})
-	return r.submitMu
 }
 
 func (r *Runner) now() time.Time {
@@ -277,25 +296,51 @@ func (r *Runner) loadState(key string) (*UploadState, error) {
 
 // createForm fetches a fresh form page. Upload servers are never cached, so
 // this happens before every upload and before the submit. A dead session is
-// an ordinary error here: one re-login, one retry, then give up.
+// an ordinary error here: one recovery, then give up.
 func (r *Runner) createForm(ctx context.Context, req Request) (site.CreateForm, error) {
 	f, err := r.Site.CreateForm(ctx, req.Draft.SeriesID, req.Channel)
 	if !errors.Is(err, site.ErrNotAuthorized) {
 		return f, err
 	}
-	if lerr := r.relogin(ctx, req); lerr != nil {
-		return site.CreateForm{}, lerr
+	err = r.recoverSession(ctx, req, func() error {
+		f, err = r.Site.CreateForm(ctx, req.Draft.SeriesID, req.Channel)
+		return err
+	})
+	if err != nil {
+		return site.CreateForm{}, err
 	}
-	f, err = r.Site.CreateForm(ctx, req.Draft.SeriesID, req.Channel)
-	if errors.Is(err, site.ErrNotAuthorized) {
-		return site.CreateForm{}, ErrAuth
-	}
-	return f, err
+	return f, nil
 }
 
-// relogin fetches the password and logs in once. It is the single place that
-// turns a dead session back into a live one, shared by the form fetch and the
-// submit, so that both spend exactly one login and report the same error.
+// recoverSession is called after a request answered with the login page. It
+// is the single place that turns a dead session back into a live one, shared
+// by the form fetch and the submit, so that both spend exactly one login and
+// report the same error.
+//
+// Under the login lock it first repeats the request: in a batch another run
+// may have logged in already, and that login is reused rather than repeated.
+// Only when the repeat still answers with the login page does it log in and
+// try once more; a third login page is ErrAuth.
+func (r *Runner) recoverSession(ctx context.Context, req Request, try func() error) error {
+	mu := r.loginLock()
+	mu.Lock()
+	defer mu.Unlock()
+
+	err := try()
+	if !errors.Is(err, site.ErrNotAuthorized) {
+		return err
+	}
+	if lerr := r.relogin(ctx, req); lerr != nil {
+		return lerr
+	}
+	err = try()
+	if errors.Is(err, site.ErrNotAuthorized) {
+		return ErrAuth
+	}
+	return err
+}
+
+// relogin fetches the password and logs in once. Callers hold the login lock.
 func (r *Runner) relogin(ctx context.Context, req Request) error {
 	if req.Password == nil {
 		return ErrAuth
@@ -838,18 +883,23 @@ func (r *Runner) submitLocked(ctx context.Context, rc *runCtx, up site.UploadedF
 		case errors.Is(err, site.ErrNotAuthorized):
 			// The site answered with the login page, which is its way of
 			// saying the form was not accepted. Nothing was created, so the
-			// marker comes back off and one re-login is safe. The token
-			// belonged to the dead session, so a fresh form comes with it.
+			// marker comes back off and one recovery is safe. The token
+			// belonged to the dead session, so a fresh form comes with it:
+			// the form fetch is the request that is repeated, and it logs
+			// in only if the session is still dead (another run of a batch
+			// may have revived it already).
 			rc.st.Phase = PhaseUploaded
 			_ = r.saveState(rc)
 			if reloggedIn {
 				return Outcome{State: rc.st}, site.SubmitResult{}, false, ErrAuth
 			}
 			reloggedIn = true
-			if lerr := r.relogin(ctx, req); lerr != nil {
-				return Outcome{State: rc.st}, site.SubmitResult{}, false, lerr
-			}
-			fresh, ferr := r.createForm(ctx, req)
+			var fresh site.CreateForm
+			ferr := r.recoverSession(ctx, req, func() error {
+				var e error
+				fresh, e = r.Site.CreateForm(ctx, req.Draft.SeriesID, req.Channel)
+				return e
+			})
 			if ferr != nil {
 				return Outcome{State: rc.st}, site.SubmitResult{}, false, ferr
 			}

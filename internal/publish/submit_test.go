@@ -131,6 +131,7 @@ func TestSubmitNotAuthorizedRetriesAfterLogin(t *testing.T) {
 	h := newHarness(t)
 	h.site.submit = func(call int) (SubmitResultAlias, error) {
 		if call == 1 {
+			h.site.kill()
 			return SubmitResultAlias{}, site.ErrNotAuthorized
 		}
 		return SubmitResultAlias{TranslationID: 4242, Location: "/translations/update/4242"}, nil
@@ -142,8 +143,9 @@ func TestSubmitNotAuthorizedRetriesAfterLogin(t *testing.T) {
 	}
 	eq(t, "submits", h.site.submits, 2)
 	eq(t, "logins", h.site.logins, 1)
-	// The retry used a token from a form fetched after the login.
-	eq(t, "submitted csrf", h.site.lastForm.CSRF, "csrf-3")
+	// The retry used a token from a form fetched after the login: forms 1
+	// and 2 came before the submit, form 3 hit the dead session.
+	eq(t, "submitted csrf", h.site.lastForm.CSRF, "csrf-4")
 	eq(t, "TranslationID", out.TranslationID, 4242)
 	keys, _ := h.store.Keys()
 	eq(t, "state keys", len(keys), 0)
@@ -151,7 +153,9 @@ func TestSubmitNotAuthorizedRetriesAfterLogin(t *testing.T) {
 
 func TestSubmitNotAuthorizedTwiceIsErrAuth(t *testing.T) {
 	h := newHarness(t)
+	// The session dies again right after every login.
 	h.site.submit = func(call int) (SubmitResultAlias, error) {
+		h.site.kill()
 		return SubmitResultAlias{}, site.ErrNotAuthorized
 	}
 

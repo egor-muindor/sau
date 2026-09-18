@@ -182,10 +182,73 @@ func TestRunBatchStopsOnAuthorizationFailure(t *testing.T) {
 			t.Errorf("results[%d].Err = %v, want ErrCancelled", i, results[i].Err)
 		}
 	}
-	// One re-login for the whole batch, not one per episode.
+	// One re-login for the whole batch, not one per episode: the form is
+	// fetched, fetched again under the login lock, and once more after the
+	// login, all by the first episode.
 	eq(t, "logins", h.site.logins, 1)
-	eq(t, "forms", h.site.forms, 2)
+	eq(t, "forms", h.site.forms, 3)
 	eq(t, "uploads", h.up.calls, 0)
+}
+
+// TestRunBatchReloginHappensOnce pins down what happens when the session dies
+// while several runs are in flight: every run hits the login page at once,
+// and only one of them may log in. The others must reuse that login, because
+// two logins interleaved on one cookie jar (the login page fetched by one,
+// the form posted by another with a stale token) fail spuriously.
+func TestRunBatchReloginHappensOnce(t *testing.T) {
+	h := newHarness(t)
+	h.site.kill()
+	// The first three form fetches are the first step of the three runs; they
+	// are held until all three are inside, so that all three see the dead
+	// session before any of them can log in.
+	together := newRendezvous(t, 3)
+	// Rendezvous alone is not enough: the run that leaves it last may repeat
+	// its fetch and log in before the other two get to their repeat, and
+	// then they see a live session even without the lock. So the login is
+	// held open until another run has repeated its fetch (call 4 is the
+	// repeat of the run that logs in; call 5 is the first repeat of another
+	// run). With the lock that repeat cannot happen until the login is over,
+	// so the wait merely expires; without the lock it is released at once
+	// and the other run, having read dead before the login finished, logs
+	// in a second time.
+	otherRetry := make(chan struct{})
+	var otherOnce sync.Once
+	h.site.form = func(call int, seriesID int, ch translation.Channel) (site.CreateForm, error) {
+		if call <= 3 {
+			together.wait()
+		}
+		// dead is read before the release, so that the look cannot land
+		// after the login it releases.
+		h.site.mu.Lock()
+		dead := h.site.dead
+		h.site.mu.Unlock()
+		if call >= 5 {
+			otherOnce.Do(func() { close(otherRetry) })
+		}
+		if dead {
+			return site.CreateForm{}, site.ErrNotAuthorized
+		}
+		return defaultForm(call), nil
+	}
+	h.site.login = func(n int) error {
+		select {
+		case <-otherRetry:
+		case <-time.After(time.Second):
+		}
+		return nil
+	}
+
+	results := h.run.RunBatch(context.Background(), batchOf(h, 3), 3)
+	for i, r := range results {
+		if r.Err != nil {
+			t.Errorf("results[%d].Err = %v", i, r.Err)
+		}
+		if r.Outcome == nil || r.Outcome.TranslationID != 4242 {
+			t.Errorf("results[%d].Outcome = %+v", i, r.Outcome)
+		}
+	}
+	eq(t, "logins", h.site.logins, 1)
+	eq(t, "submits", h.site.submits, 3)
 }
 
 func TestRunBatchUserCancellationIsNotMarkedCancelled(t *testing.T) {
@@ -333,16 +396,12 @@ func TestRunBatchEmpty(t *testing.T) {
 
 func TestCheckSessionLogsInOnce(t *testing.T) {
 	h := newHarness(t)
-	h.site.form = func(call int, seriesID int, ch translation.Channel) (site.CreateForm, error) {
-		if call == 1 {
-			return site.CreateForm{}, site.ErrNotAuthorized
-		}
-		return defaultForm(call), nil
-	}
+	h.site.kill()
 	if err := h.run.CheckSession(context.Background(), h.request()); err != nil {
 		t.Fatalf("CheckSession: %v", err)
 	}
-	eq(t, "calls", strings.Join(h.site.calls, ","), "CreateForm(36866,cdn),Login,CreateForm(36866,cdn)")
+	eq(t, "calls", strings.Join(h.site.calls, ","),
+		"CreateForm(36866,cdn),CreateForm(36866,cdn),Login,CreateForm(36866,cdn)")
 	eq(t, "uploads", h.up.calls, 0)
 }
 

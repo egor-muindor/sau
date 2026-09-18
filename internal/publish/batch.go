@@ -126,7 +126,7 @@ func (r *Runner) itemReporter(item BatchItem) Reporter {
 }
 
 // forItem returns a runner for one item of a batch: the same collaborators
-// and the same submit lock, a reporter of its own.
+// and the same locks, a reporter of its own.
 func (r *Runner) forItem(rep Reporter) *Runner {
 	return &Runner{
 		Site:     r.Site,
@@ -137,6 +137,7 @@ func (r *Runner) forItem(rep Reporter) *Runner {
 		Now:      r.Now,
 		Stat:     r.Stat,
 		submitMu: r.submitLock(),
+		loginMu:  r.loginLock(),
 	}
 }
 
