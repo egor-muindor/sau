@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"maps"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -47,29 +46,18 @@ func cmdUpload(ctx context.Context, args []string, d Deps) error {
 		return usagef("upload requires --series, SAU_SERIES or series in a configuration file")
 	}
 
-	draft := translation.Draft{
+	base := translation.Draft{
 		SeriesID:      cfg.SeriesID,
-		EpisodeNumber: o.episode,
 		EpisodeType:   et,
 		Type:          tt,
 		Authors:       cfg.Authors,
 		AddedByAuthor: cfg.AddedByAuthor,
-		VideoPath:     o.video,
-		SubPath:       o.sub,
 	}
-	if err := draft.Validate(); err != nil {
-		return usagef("%v", err)
-	}
-
-	// A mistyped path is a usage error, not a failed run. The runner stats the
-	// file again when it needs the size; this check is only here so that a typo
-	// reads like one. The subtitle file is left to the runner: it is resolved
-	// against the upload, not against the command line.
-	switch info, err := os.Stat(o.video); {
-	case err != nil:
-		return usagef("cannot read the video file: %v", err)
-	case info.IsDir():
-		return usagef("cannot read the video file: %s is a directory", o.video)
+	// Everything about the files is settled before the first request to the
+	// site: a typo in a path or an unresolved number reads like a usage error.
+	items, err := planItems(o, cfg, base)
+	if err != nil {
+		return err
 	}
 
 	if d.Runner == nil {
@@ -79,21 +67,18 @@ func cmdUpload(ctx context.Context, args []string, d Deps) error {
 	if err != nil {
 		return err
 	}
+	pass := buildPassword(cfg, d)
 
-	out, err := runner.Run(ctx, publish.Request{
-		Draft:       draft,
-		Channel:     ch,
-		User:        cfg.User,
-		Password:    buildPassword(cfg, d),
-		Fresh:       o.fresh,
-		DryRun:      o.dryRun,
-		NoSubmit:    o.noSubmit,
-		Concurrency: cfg.Concurrency,
-	})
-	if err != nil {
-		return err
+	// One file with an explicit number is the original command: no plan, no
+	// question, the same output as before.
+	if len(items) == 1 && o.episode != "" {
+		out, err := runner.Run(ctx, items[0].request(o, cfg, ch, pass))
+		if err != nil {
+			return err
+		}
+		return printUploadResult(d, o.asJSON, out)
 	}
-	return printUploadResult(d, o.asJSON, out)
+	return runBatch(ctx, d, o, cfg, ch, pass, runner, items)
 }
 
 func printUploadResult(d Deps, asJSON bool, out publish.Outcome) error {

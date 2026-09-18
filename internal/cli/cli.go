@@ -36,6 +36,8 @@ const (
 // substitute it.
 type publishRunner interface {
 	Run(ctx context.Context, req publish.Request) (publish.Outcome, error)
+	RunBatch(ctx context.Context, items []publish.BatchItem, parallel int) []publish.BatchResult
+	CheckSession(ctx context.Context, req publish.Request) error
 	Abort(ctx context.Context, path string) error
 	Resolve(ctx context.Context, path string, submitted bool) error
 	Status() ([]publish.UploadState, error)
@@ -65,10 +67,12 @@ var dirs = config.Dirs
 const usageText = `usage: sau <command> [flags]
 
   login    [--user U] [--save-password] [--check]
-  upload   <video> [--sub f.ass] --episode N [--series ID]
+  upload   <video>... [--sub f.ass] [--episode N] [--series ID]
            [--episode-type tv] [--type voiceRu] [--authors "..."] [--by-author]
-           [--channel cdn|all|ru] [--dry-run] [--no-submit] [--fresh]
-           [--concurrency 5] [--json] [-v] [--debug]
+           [--channel cdn|all|ru] [--parallel 1] [--yes] [--dry-run]
+           [--no-submit] [--fresh] [--concurrency 5] [--json] [-v] [--debug]
+           several files, or one without --episode, make a batch: the numbers
+           come from [[episodes]] or episode_pattern in .sau.toml
   status                       unfinished uploads
   abort    <video>             delete the uploaded file and drop its state
   resolve  <video> --submitted | --resend

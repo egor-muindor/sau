@@ -25,6 +25,12 @@ func exitCode(err error) int {
 		return ExitInterrupted
 	}
 
+	// A batch prints its own summary; the error only carries the worst code.
+	var be *batchError
+	if errors.As(err, &be) {
+		return be.code
+	}
+
 	var ue *usageError
 	if errors.As(err, &ue) {
 		return ExitUsage
@@ -68,6 +74,12 @@ func reportError(w io.Writer, err error) {
 			fmt.Fprintf(w, "sau: %s\n", ue.msg)
 		}
 		fmt.Fprint(w, usageText)
+		return
+	}
+
+	var be *batchError
+	if errors.As(err, &be) {
+		fmt.Fprintf(w, "sau: %s\n", be.Error())
 		return
 	}
 

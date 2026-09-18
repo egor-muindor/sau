@@ -17,6 +17,21 @@ import (
 // LoadCredential= in systemd, which is the answer for a headless machine.
 func buildPassword(cfg config.Config, d Deps) secrets.Source {
 	return secrets.Chain(
+		buildStoredPassword(cfg, d),
+		secrets.PromptSource{
+			Prompt: secrets.ReadPassword,
+			Label:  "password for " + cfg.User + " on " + cfg.Mirror + ": ",
+		},
+	)
+}
+
+// buildStoredPassword is the chain without the prompt: environment, file,
+// keyring. A batch with several workers hands this one to its items, because
+// a prompt in the middle of the progress display would be unreadable; the
+// session is checked and the login done, with the full chain, before the
+// parallel part starts.
+func buildStoredPassword(cfg config.Config, d Deps) secrets.Source {
+	return secrets.Chain(
 		secrets.EnvSource{Name: "SAU_PASSWORD", Lookup: d.Env},
 		secrets.FileSource{Name: "SAU_PASSWORD_FILE", Lookup: d.Env, ReadFile: os.ReadFile},
 		secrets.KeyringSource{
@@ -26,10 +41,6 @@ func buildPassword(cfg config.Config, d Deps) secrets.Source {
 			// A Linux box without a graphical session has no keyring. That is
 			// not a failure: say so once and move on to the next source.
 			Warn: func(msg string) { fmt.Fprintf(d.Stderr, "sau: %s\n", msg) },
-		},
-		secrets.PromptSource{
-			Prompt: secrets.ReadPassword,
-			Label:  "password for " + cfg.User + " on " + cfg.Mirror + ": ",
 		},
 	)
 }

@@ -20,6 +20,7 @@ type fakeRunner struct {
 	// reporter. It lets a test check where the reporter's prose lands.
 	onRun   func()
 	req     publish.Request
+	reqs    []publish.Request // every Run request, in order
 	calls   []string
 	out     publish.Outcome
 	err     error
@@ -29,15 +30,43 @@ type fakeRunner struct {
 		path      string
 		submitted bool
 	}
+
+	checkErr      error
+	batchItems    []publish.BatchItem
+	batchParallel int
+	// batchFn builds the batch results; when nil every item ends with out
+	// and err.
+	batchFn func(items []publish.BatchItem) []publish.BatchResult
 }
 
 func (f *fakeRunner) Run(ctx context.Context, req publish.Request) (publish.Outcome, error) {
 	f.calls = append(f.calls, "Run")
 	f.req = req
+	f.reqs = append(f.reqs, req)
 	if f.onRun != nil {
 		f.onRun()
 	}
 	return f.out, f.err
+}
+
+func (f *fakeRunner) RunBatch(ctx context.Context, items []publish.BatchItem, parallel int) []publish.BatchResult {
+	f.calls = append(f.calls, "RunBatch")
+	f.batchItems = items
+	f.batchParallel = parallel
+	if f.batchFn != nil {
+		return f.batchFn(items)
+	}
+	res := make([]publish.BatchResult, len(items))
+	for i, it := range items {
+		out := f.out
+		res[i] = publish.BatchResult{Item: it, Outcome: &out, Err: f.err}
+	}
+	return res
+}
+
+func (f *fakeRunner) CheckSession(ctx context.Context, req publish.Request) error {
+	f.calls = append(f.calls, "CheckSession")
+	return f.checkErr
 }
 
 func (f *fakeRunner) Abort(ctx context.Context, path string) error {

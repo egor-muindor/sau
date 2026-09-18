@@ -5,6 +5,9 @@ import (
 	"testing"
 
 	"go.uber.org/goleak"
+
+	"sau/internal/fineup"
+	"sau/internal/progress"
 )
 
 // TestProgressStopsWithTheRun pins down the rule that the bar of the last file
@@ -58,4 +61,51 @@ func TestReporterAskReadsTheAnswer(t *testing.T) {
 		}
 	}
 	stopProgress()
+}
+
+func TestBatchReporterDrawsOnItsOwnLine(t *testing.T) {
+	var errOut strings.Builder
+	m := &progress.Multi{W: &errOut}
+	r := &batchReporter{d: Deps{Stderr: &errOut}, multi: m, name: "ep02.mp4"}
+
+	r.Begin("ep02.mp4", 1000, 2)
+	r.Event(fineup.Event{Kind: fineup.EventChunkDone, Bytes: 500})
+	r.Warn("host a failed")
+	r.Info("finalizing")
+	r.Done()
+
+	out := errOut.String()
+	for _, want := range []string{
+		"ep02.mp4: 1000 bytes in 2 chunks",
+		"sau: ep02.mp4: host a failed",
+		"ep02.mp4: finalizing",
+		"50%",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestBatchReporterWithoutATerminalPrintsTextOnly(t *testing.T) {
+	var errOut strings.Builder
+	r := &batchReporter{d: Deps{Stderr: &errOut}, name: "ep02.mp4"}
+
+	r.Begin("ep02.mp4", 1000, 2)
+	r.Event(fineup.Event{Kind: fineup.EventChunkDone, Bytes: 500})
+	r.Event(fineup.Event{Kind: fineup.EventHostFailed, Host: "host-a"})
+	r.Done()
+
+	out := errOut.String()
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("stderr contains an escape sequence without a terminal:\n%q", out)
+	}
+	for _, want := range []string{"ep02.mp4: 1000 bytes in 2 chunks", "host host-a failed"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("stderr lacks %q:\n%s", want, out)
+		}
+	}
+	if _, err := r.Ask("really?"); err == nil {
+		t.Error("Ask with several episodes running must fail rather than guess")
+	}
 }

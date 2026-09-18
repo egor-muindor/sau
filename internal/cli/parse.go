@@ -41,9 +41,11 @@ func parseArgs(fs *flag.FlagSet, args []string) ([]string, error) {
 }
 
 type uploadOpts struct {
-	video    string
+	videos   []string
 	sub      string
 	episode  string
+	parallel int
+	yes      bool
 	dryRun   bool
 	noSubmit bool
 	fresh    bool
@@ -55,6 +57,10 @@ type uploadOpts struct {
 // parseUpload reads the upload flags. It returns the options that belong to
 // this run only and the configuration layer built from the flags that were
 // actually given: an unset flag must not override the environment or a file.
+//
+// Several files make a batch. --episode and --sub name one file's number and
+// subtitles, so with several files they are refused: the numbers come from
+// the configuration then.
 func parseUpload(args []string, d Deps) (uploadOpts, config.Layer, error) {
 	var o uploadOpts
 	var (
@@ -68,14 +74,16 @@ func parseUpload(args []string, d Deps) (uploadOpts, config.Layer, error) {
 	)
 
 	fs := newFlagSet("upload", d)
-	fs.StringVar(&o.sub, "sub", "", "subtitle file to upload with the video")
-	fs.StringVar(&o.episode, "episode", "", "episode number, for example 7 or 7.5")
+	fs.StringVar(&o.sub, "sub", "", "subtitle file to upload with the video (one file only)")
+	fs.StringVar(&o.episode, "episode", "", "episode number, for example 7 or 7.5 (one file only)")
 	fs.IntVar(&series, "series", 0, "series id on the site")
 	fs.StringVar(&episodeType, "episode-type", "", "episode type: tv, ova, ona, movie, special, tv_special, preview")
 	fs.StringVar(&typ, "type", "", "translation type, for example voiceRu or subRu")
 	fs.StringVar(&authors, "authors", "", "authors line as it should appear on the site")
 	fs.BoolVar(&byAuthor, "by-author", false, "mark the translation as added by its author")
 	fs.StringVar(&channel, "channel", "", "distribution channel: all, cdn or ru")
+	fs.IntVar(&o.parallel, "parallel", 1, "number of episodes uploaded at once")
+	fs.BoolVar(&o.yes, "yes", false, "do not ask for confirmation after the plan")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "do everything that has no side effects")
 	fs.BoolVar(&o.noSubmit, "no-submit", false, "upload the file but do not submit the form")
 	fs.BoolVar(&o.fresh, "fresh", false, "ignore any saved state and start over")
@@ -88,10 +96,21 @@ func parseUpload(args []string, d Deps) (uploadOpts, config.Layer, error) {
 	if err != nil {
 		return o, nil, parseErr(err)
 	}
-	if len(files) != 1 {
-		return o, nil, usagef("upload takes exactly one video file")
+	if len(files) == 0 {
+		return o, nil, usagef("upload takes at least one video file")
 	}
-	o.video = files[0]
+	o.videos = files
+	if len(files) > 1 {
+		if o.episode != "" {
+			return o, nil, usagef("--episode applies to a single file; with several files the numbers come from [[episodes]] or episode_pattern in .sau.toml")
+		}
+		if o.sub != "" {
+			return o, nil, usagef("--sub applies to a single file; with several files put sub into the [[episodes]] entry")
+		}
+	}
+	if o.parallel < 1 {
+		return o, nil, usagef("--parallel must be at least 1, got %d", o.parallel)
+	}
 
 	layer := config.Layer{}
 	fs.Visit(func(f *flag.Flag) {
@@ -112,10 +131,6 @@ func parseUpload(args []string, d Deps) (uploadOpts, config.Layer, error) {
 			layer["concurrency"] = f.Value.String()
 		}
 	})
-
-	if o.episode == "" {
-		return o, nil, usagef("upload requires --episode")
-	}
 	return o, layer, nil
 }
 

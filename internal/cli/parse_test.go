@@ -18,7 +18,7 @@ func TestRunUsageErrors(t *testing.T) {
 		{"no command", nil, "no command"},
 		{"unknown command", []string{"frobnicate"}, "unknown command"},
 		{"upload without episode", []string{"upload", "--series", "1", "--authors", "T", v}, "--episode"},
-		{"upload without a file", []string{"upload", "--episode", "1", "--series", "1"}, "exactly one video file"},
+		{"upload without a file", []string{"upload", "--episode", "1", "--series", "1"}, "at least one video file"},
 		{"upload without series", []string{"upload", "--episode", "1", "--authors", "T", v}, "--series"},
 		{"bad channel", []string{"upload", "--episode", "1", "--series", "1", "--authors", "T", "--channel", "moon", v}, "channel"},
 		{"bad episode type", []string{"upload", "--episode", "1", "--series", "1", "--authors", "T", "--episode-type", "book", v}, "episode type"},

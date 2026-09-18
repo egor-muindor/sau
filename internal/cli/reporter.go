@@ -50,6 +50,18 @@ func newConsoleReporter(d Deps) publish.Reporter {
 	return r
 }
 
+// consoleFor returns the reporter the runner of this run will use, so that a
+// question asked by the command and a question asked by the runner read the
+// same stdin buffer: a second bufio.Reader would swallow whatever the first one
+// read ahead. Without a runner-built reporter (tests substitute Deps.Runner)
+// a fresh one is made.
+func consoleFor(d Deps) *consoleReporter {
+	if r := activeReporter; r != nil {
+		return r
+	}
+	return &consoleReporter{d: d}
+}
+
 // stopProgress takes down the bar of the file that was uploading last.
 //
 // Begin stops the bar of the previous file, so every bar but the last one is
