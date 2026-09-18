@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	userAgent      = "sau/0.1 (+https://github.com/8and16bit/sau)"
+	userAgent      = "sau"
 	keyringService = "sau"
 )
 

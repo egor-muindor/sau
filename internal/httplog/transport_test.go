@@ -242,3 +242,19 @@ func TestTransportWithoutLoggerIsTransparent(t *testing.T) {
 }
 
 var _ http.RoundTripper = (*Transport)(nil)
+
+// The HTTP trace belongs to --debug. At the info level that -v enables the
+// transport must stay silent, or every chunk would scroll the progress bar away.
+func TestTraceIsDebugLevel(t *testing.T) {
+	buf := &bytes.Buffer{}
+	log := slog.New(slog.NewTextHandler(buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	tr := New(&stubRT{resp: response(200, "text/plain", "ok")}, log)
+
+	req, _ := http.NewRequest(http.MethodGet, "https://example.test/", nil)
+	if _, err := tr.RoundTrip(req); err != nil {
+		t.Fatal(err)
+	}
+	if buf.Len() != 0 {
+		t.Fatalf("info-level logger received the trace:\n%s", buf.String())
+	}
+}

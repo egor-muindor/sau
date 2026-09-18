@@ -50,7 +50,7 @@ func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
 
 	resp, err := t.base().RoundTrip(r)
 	if err != nil {
-		t.Log.Info("http error",
+		t.Log.Debug("http error",
 			slog.String("method", r.Method),
 			slog.String("url", r.URL.Redacted()),
 			slog.String("err", redactErr(err)))
@@ -98,7 +98,7 @@ func (t *Transport) logRequest(r *http.Request) {
 		attrs = append(attrs, slog.Int64("body_bytes", r.ContentLength))
 	}
 
-	t.Log.Info("http request", attrs...)
+	t.Log.Debug("http request", attrs...)
 }
 
 func (t *Transport) logResponse(r *http.Request, resp *http.Response) {
@@ -112,7 +112,7 @@ func (t *Transport) logResponse(r *http.Request, resp *http.Response) {
 		_ = resp.Body.Close()
 		resp.Body = io.NopCloser(bytes.NewReader(data))
 		if err != nil {
-			t.Log.Info("http response",
+			t.Log.Debug("http response",
 				slog.String("method", r.Method),
 				slog.String("url", r.URL.Redacted()),
 				slog.Int("status", resp.StatusCode),
@@ -137,7 +137,7 @@ func (t *Transport) logResponse(r *http.Request, resp *http.Response) {
 		attrs = append(attrs, slog.String("body", truncate(redactCSRF(string(data)), t.maxBody())))
 	}
 
-	t.Log.Info("http response", attrs...)
+	t.Log.Debug("http response", attrs...)
 }
 
 // peekFormBody returns the request body in full, without consuming it for the
