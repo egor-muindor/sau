@@ -13,6 +13,26 @@ import (
 // and surrounding whitespace, none of which the site's form would.
 var episodeNumberRe = regexp.MustCompile(`^[0-9]+(\.[0-9]+)?$`)
 
+// ValidateEpisodeNumber reports whether s is an episode number the site
+// accepts: plain digits, optionally with a decimal fraction, greater than
+// zero. The command line, the configuration file and the draft all go through
+// this one check, so a bad number is rejected the same way wherever it came
+// from. The result is nil or a *FieldError for the field "episode".
+func ValidateEpisodeNumber(s string) error {
+	switch {
+	case s == "":
+		return &FieldError{Field: "episode", Msg: "is required"}
+	case !episodeNumberRe.MatchString(s):
+		return &FieldError{Field: "episode", Msg: "must be a positive decimal number, got " + strconv.Quote(s)}
+	}
+	// Safe: episodeNumberRe already guarantees valid float syntax.
+	n, _ := strconv.ParseFloat(s, 64)
+	if n <= 0 {
+		return &FieldError{Field: "episode", Msg: "must be greater than zero, got " + strconv.Quote(s)}
+	}
+	return nil
+}
+
 // Draft is everything the user decides about a publication. It carries no
 // knowledge of the site: the site package turns it into form fields.
 type Draft struct {
@@ -46,17 +66,8 @@ func (d Draft) Validate() error {
 		errs = append(errs, &FieldError{Field: "series", Msg: "must be a positive series id"})
 	}
 
-	switch {
-	case d.EpisodeNumber == "":
-		errs = append(errs, &FieldError{Field: "episode", Msg: "is required"})
-	case !episodeNumberRe.MatchString(d.EpisodeNumber):
-		errs = append(errs, &FieldError{Field: "episode", Msg: "must be a positive decimal number, got " + strconv.Quote(d.EpisodeNumber)})
-	default:
-		// Safe: episodeNumberRe already guarantees valid float syntax.
-		n, _ := strconv.ParseFloat(d.EpisodeNumber, 64)
-		if n <= 0 {
-			errs = append(errs, &FieldError{Field: "episode", Msg: "must be greater than zero, got " + strconv.Quote(d.EpisodeNumber)})
-		}
+	if err := ValidateEpisodeNumber(d.EpisodeNumber); err != nil {
+		errs = append(errs, err)
 	}
 
 	if _, err := ParseEpisodeType(string(d.EpisodeType)); err != nil {

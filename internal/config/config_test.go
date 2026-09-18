@@ -268,3 +268,160 @@ func TestLoadBadInteger(t *testing.T) {
 		t.Fatal("Load: want an error for a non-numeric series")
 	}
 }
+
+func TestLoadEpisodePattern(t *testing.T) {
+	dir := t.TempDir()
+	p := writeTOML(t, dir, ".sau.toml", "episode_pattern = ' - (\\d+(?:\\.\\d+)?) '\n")
+	cfg, err := Load(nil, envOf(nil), p, filepath.Join(dir, "absent.toml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.EpisodePattern == nil {
+		t.Fatal("EpisodePattern is nil")
+	}
+	m := cfg.EpisodePattern.FindStringSubmatch("[T] Show - 02 [1080p].mp4")
+	if len(m) != 2 || m[1] != "02" {
+		t.Errorf("submatch = %q, want the number in group 1", m)
+	}
+	m = cfg.EpisodePattern.FindStringSubmatch("[T] Show - 5.5 [1080p].mp4")
+	if len(m) != 2 || m[1] != "5.5" {
+		t.Errorf("submatch = %q, want a fractional number in group 1", m)
+	}
+}
+
+func TestLoadEpisodePatternMustHaveOneGroup(t *testing.T) {
+	cases := []struct{ name, body string }{
+		{"no group", "episode_pattern = ' - \\d+ '\n"},
+		{"two groups", "episode_pattern = '(\\d+)x(\\d+)'\n"},
+		{"invalid", "episode_pattern = '('\n"},
+		{"not a string", "episode_pattern = 3\n"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := writeTOML(t, dir, ".sau.toml", tc.body)
+			_, err := Load(nil, envOf(nil), p, filepath.Join(dir, "absent.toml"))
+			if err == nil || !strings.Contains(err.Error(), "episode_pattern") {
+				t.Fatalf("Load: %v, want an error naming episode_pattern", err)
+			}
+		})
+	}
+}
+
+func TestLoadEpisodes(t *testing.T) {
+	dir := t.TempDir()
+	p := writeTOML(t, dir, ".sau.toml", `
+[[episodes]]
+file = "[T] Show FIX 1080p.mp4"
+episode = "2"
+sub = "02.ass"
+
+[[episodes]]
+file = "[T] Show - 03 [1080p].mp4"
+episode = 3
+
+[[episodes]]
+file = "[T] Show - 04 [1080p].mp4"
+episode = "4.5"
+sub = "subs/04.ass"
+`)
+	cfg, err := Load(nil, envOf(nil), p, filepath.Join(dir, "absent.toml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Episodes) != 3 {
+		t.Fatalf("Episodes = %v, want 3 entries", cfg.Episodes)
+	}
+	e := cfg.Episodes[0]
+	if e.File != "[T] Show FIX 1080p.mp4" || e.Episode != "2" {
+		t.Errorf("Episodes[0] = %+v", e)
+	}
+	// A relative subtitle path is resolved against the directory of the
+	// file that named it, not against the working directory.
+	if want := filepath.Join(dir, "02.ass"); e.Sub != want {
+		t.Errorf("Episodes[0].Sub = %q, want %q", e.Sub, want)
+	}
+	if cfg.Episodes[1].Episode != "3" || cfg.Episodes[1].Sub != "" {
+		t.Errorf("Episodes[1] = %+v, want an integer episode accepted and no sub", cfg.Episodes[1])
+	}
+	if want := filepath.Join(dir, "subs", "04.ass"); cfg.Episodes[2].Episode != "4.5" || cfg.Episodes[2].Sub != want {
+		t.Errorf("Episodes[2] = %+v, want episode 4.5 and sub %q", cfg.Episodes[2], want)
+	}
+}
+
+func TestLoadEpisodesErrors(t *testing.T) {
+	cases := []struct{ name, body, want string }{
+		{"unknown key", "[[episodes]]\nfile = \"a.mp4\"\nepisode = \"1\"\nauthors = \"x\"\n", "authors"},
+		{"duplicate file", "[[episodes]]\nfile = \"a.mp4\"\nepisode = \"1\"\n[[episodes]]\nfile = \"a.mp4\"\nepisode = \"2\"\n", "twice"},
+		{"bad number", "[[episodes]]\nfile = \"a.mp4\"\nepisode = \"one\"\n", "episode"},
+		{"zero", "[[episodes]]\nfile = \"a.mp4\"\nepisode = \"0\"\n", "episode"},
+		{"missing number", "[[episodes]]\nfile = \"a.mp4\"\n", "episode"},
+		{"missing file", "[[episodes]]\nepisode = \"1\"\n", "file"},
+		{"file with a directory", "[[episodes]]\nfile = \"dir/a.mp4\"\nepisode = \"1\"\n", "bare file name"},
+		{"not a table", "episodes = \"a.mp4\"\n", "episodes"},
+		{"sub not a string", "[[episodes]]\nfile = \"a.mp4\"\nepisode = \"1\"\nsub = 1\n", "sub"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			p := writeTOML(t, dir, ".sau.toml", tc.body)
+			_, err := Load(nil, envOf(nil), p, filepath.Join(dir, "absent.toml"))
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("Load: %v, want an error mentioning %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestLoadEpisodeKeysProjectFileWins(t *testing.T) {
+	dir := t.TempDir()
+	userPath := writeTOML(t, dir, "config.toml", `
+episode_pattern = 'user-(\d+)'
+[[episodes]]
+file = "u1.mp4"
+episode = "1"
+[[episodes]]
+file = "u2.mp4"
+episode = "2"
+`)
+	projPath := writeTOML(t, dir, ".sau.toml", `
+[[episodes]]
+file = "p9.mp4"
+episode = "9"
+`)
+	cfg, err := Load(nil, envOf(nil), projPath, userPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	// The list is replaced as a whole, never merged.
+	if len(cfg.Episodes) != 1 || cfg.Episodes[0].File != "p9.mp4" {
+		t.Errorf("Episodes = %v, want only the project entry", cfg.Episodes)
+	}
+	// A key the project file did not set survives from the user file.
+	if cfg.EpisodePattern == nil || cfg.EpisodePattern.String() != `user-(\d+)` {
+		t.Errorf("EpisodePattern = %v, want the user file's pattern", cfg.EpisodePattern)
+	}
+
+	projPath2 := writeTOML(t, dir, "proj2.toml", "episode_pattern = 'proj-(\\d+)'\n")
+	cfg, err = Load(nil, envOf(nil), projPath2, userPath)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.EpisodePattern.String() != `proj-(\d+)` {
+		t.Errorf("EpisodePattern = %v, want the project file's pattern", cfg.EpisodePattern)
+	}
+	if len(cfg.Episodes) != 2 {
+		t.Errorf("Episodes = %v, want the user file's list to survive", cfg.Episodes)
+	}
+}
+
+func TestLoadEpisodeKeysAreNotLayerKeys(t *testing.T) {
+	// Flags and the environment carry flat strings; the two structured keys
+	// live only in the files.
+	for _, key := range []string{"episode_pattern", "episodes"} {
+		_, err := Load(Layer{key: "(x)"}, envOf(nil), "", "")
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("Load with flag %q: %v, want an unknown-key error", key, err)
+		}
+	}
+}
